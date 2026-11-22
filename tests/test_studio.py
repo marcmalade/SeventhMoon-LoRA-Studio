@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
@@ -269,6 +269,37 @@ class ServiceTest(Storage, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(card["data"]["triggers"], ["déjà\nà moi"])
         self.assertEqual(card["data"]["origin"], "Hybride")
         self.assertEqual(card["remote_metadata"]["triggers"], ["remote"])
+
+    async def test_civitai_token_is_sent_only_to_the_canonical_api(self):
+        civitai = Civitai(self.catalog, self.media)
+        session = MagicMock()
+        redirected = MagicMock(status=302, headers={"Location": "https://www.civitai.com/api/v1/images"})
+        response = MagicMock(status=200)
+
+        async def chunks(_size):
+            yield b"{}"
+
+        response.content.iter_chunked.side_effect = chunks
+        session.get.return_value.__aenter__.side_effect = [redirected, response, response]
+        with patch.dict("os.environ", {"SML_CIVITAI_API_TOKEN": "test-token"}):
+            await civitai.request(session, "https://civitai.com/api/v1/images", api=True)
+            await civitai.request(session, "https://image.civitai.com/test.png")
+
+        self.assertEqual([call.kwargs["headers"] for call in session.get.call_args_list],
+                         [{"Authorization": "Bearer test-token"}, {}, {}])
+        self.assertTrue(all(call.kwargs["allow_redirects"] is False for call in session.get.call_args_list))
+
+    async def test_civitai_rejects_invalid_api_redirects_before_contact(self):
+        civitai = Civitai(self.catalog, self.media)
+        for location in ("https://example.org/api/v1/images", "https://@civitai.com/api/v1/images",
+                         "/api/v1/%2e%2e/account"):
+            with self.subTest(location=location):
+                session = MagicMock()
+                session.get.return_value.__aenter__.return_value = MagicMock(
+                    status=302, headers={"Location": location})
+                with self.assertRaises(RemoteError):
+                    await civitai.request(session, "https://civitai.com/api/v1/images", api=True)
+                self.assertEqual(session.get.call_count, 1)
 
     async def test_private_reads_and_local_edits_make_no_external_requests(self):
         routes = web.RouteTableDef()

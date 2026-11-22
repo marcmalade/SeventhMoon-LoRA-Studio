@@ -5,7 +5,7 @@ import json
 import os
 import re
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from uuid import uuid4
 
 import aiohttp
@@ -14,8 +14,9 @@ from .catalog import dump, now
 from .media import MAX_IMAGE
 
 
-BASE = "https://civitai.com/api/v1/"
-API_HOSTS = {"civitai.com", "www.civitai.com"}
+API_HOST = "civitai.com"
+BASE = f"https://{API_HOST}/api/v1/"
+API_HOSTS = {API_HOST, "www.civitai.com"}
 IMAGE_HOSTS = {"image.civitai.com", "imagecache.civitai.com", "images.civitai.com", "blobs-b2.civitai.com"}
 MAX_PREVIEW = 4 * 1024 * 1024
 NUMBER = re.compile(r"[1-9][0-9]{0,14}\Z")
@@ -53,8 +54,8 @@ def allowed(url, hosts):
         raise RemoteError("Adresse Civitai invalide.")
     try:
         parts = urlsplit(url)
-        if (parts.scheme == "https" and parts.hostname in hosts and not parts.username and
-                not parts.password and parts.port in (None, 443)):
+        if (parts.scheme == "https" and parts.hostname in hosts and parts.username is None and
+                parts.password is None and parts.port in (None, 443)):
             return parts
     except ValueError:
         pass
@@ -127,11 +128,14 @@ class Civitai:
     async def request(self, session, url, *, api=False, maximum=MAX_IMAGE):
         hosts = API_HOSTS if api else IMAGE_HOSTS
         token = os.environ.get("SML_CIVITAI_API_TOKEN") if api else None
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
         for _ in range(5):
             parts = allowed(url, hosts)
-            if api and not parts.path.startswith("/api/v1/"):
-                raise RemoteError("Page suivante Civitai invalide.")
+            if api:
+                path = unquote(parts.path)
+                if (not parts.path.startswith("/api/v1/") or "\\" in path or
+                        any(segment in (".", "..") for segment in path.split("/"))):
+                    raise RemoteError("Page suivante Civitai invalide.")
+            headers = {"Authorization": f"Bearer {token}"} if token and parts.hostname == API_HOST else {}
             for retry in range(3):
                 try:
                     async with session.get(url, headers=headers, allow_redirects=False) as response:
@@ -217,7 +221,8 @@ class Civitai:
 
     @staticmethod
     def session():
-        return aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=35, connect=10), trust_env=False)
+        return aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=35, connect=10),
+                                     cookie_jar=aiohttp.DummyCookieJar(), trust_env=False)
 
     async def download(self, session, key, row, thumbnail_only):
         url = row["url"]

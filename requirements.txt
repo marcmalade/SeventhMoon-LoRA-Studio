@@ -1,2 +1,2 @@
-Pillow>=10.4
-aiohttp>=3.10
+Pillow>=13.0.0
+aiohttp>=3.14.5

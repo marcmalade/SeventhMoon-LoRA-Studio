@@ -60,6 +60,8 @@ Les miniatures sont mises en cache pendant la synchronisation. La grande image C
 
 Les données se trouvent dans `seventh-moon-lora-studio` sous le répertoire utilisateur ComfyUI, par défaut `ComfyUI\user\`. La base SQLite distingue les valeurs personnelles des métadonnées Civitai. Les copies d’images sont stockées séparément dans `media`. Chaque import d’image valide le format réel et autorise jusqu’à 48 Mio et 64 mégapixels.
 
+Toute personne ayant accès à l’instance ComfyUI peut consulter ce catalogue partagé. Pour un accès à distance, protège ComfyUI par une passerelle authentifiée ou utilise un réseau privé.
+
 **Exporter ZIP** sauvegarde les fiches, les images déjà mises en cache, leur ordre, les couvertures et les presets. **Exporter JSON** sauvegarde les métadonnées et les références. **Importer** fusionne le contenu par identifiant ou chemin relatif en donnant la priorité aux modifications locales existantes. Les poids sont à copier séparément vers les chemins `loras` de la nouvelle installation. Les copies devenues orphelines restent dans le stockage local et sont exclues des nouvelles sauvegardes.
 
 ## API locale

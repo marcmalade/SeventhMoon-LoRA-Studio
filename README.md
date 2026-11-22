@@ -51,11 +51,13 @@ Open **SML LoRA Library** in the sidebar. It indexes the formats registered for 
 
 From a card, choose **Récupérer Civitai** (Fetch from Civitai) and paste a model URL, version URL, or version ID. You can also explicitly request a SHA-256 lookup. Synchronization preserves your local edits, personal examples, cover, and gallery order. Civitai controls which images and generation metadata its API exposes. **Télécharger pour hors ligne** caches the available images for offline viewing.
 
-If you need authenticated Civitai requests, set your own `SML_CIVITAI_API_TOKEN` in the environment that launches ComfyUI. Opening and editing local cards works offline. [Civitai API reference](https://github.com/civitai/civitai-developer-docs/blob/main/site/reference/index.md)
+If you need authenticated Civitai requests, set your own `SML_CIVITAI_API_TOKEN` in the environment that launches ComfyUI. The token is sent only to `https://civitai.com/api/v1/`. Opening and editing local cards works offline. [Civitai API reference](https://github.com/civitai/civitai-developer-docs/blob/main/site/reference/index.md)
 
 ## Back up or move a library
 
 The SQLite catalog and cached images live in `seventh-moon-lora-studio/` under the ComfyUI user directory. **Exporter ZIP** includes cards, presets, cached images, their order and covers. **Exporter JSON** exports card data and references. Import merges by card ID or relative file path and preserves existing local edits.
+
+Anyone with access to the ComfyUI instance can access this shared catalog. For access over a network, put ComfyUI behind an authenticated gateway or use a private network.
 
 To use a workflow on another ComfyUI instance, install the extension there and place the LoRA files in the same relative locations within its configured `loras` directories. Transfer the library ZIP as well if you want the cards and images on that instance.
 
