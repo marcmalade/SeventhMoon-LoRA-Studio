@@ -12,4 +12,5 @@ Repository = "https://github.com/marcmalade/SeventhMoon-LoRA-Studio"
 Issues = "https://github.com/marcmalade/SeventhMoon-LoRA-Studio/issues"
 
 [tool.comfy]
+PublisherId = "seventh-moon-labs"
 DisplayName = "Seventh Moon LoRA Studio"
