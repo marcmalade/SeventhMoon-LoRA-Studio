@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.env*
+*.sqlite*
+*.safetensors
+*.ckpt
+*.gguf
+*.zip
+dist/
