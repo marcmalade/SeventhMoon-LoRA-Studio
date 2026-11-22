@@ -1,6 +1,6 @@
 [project]
 name = "seventh-moon-lora-studio"
-version = "0.2.0"
+version = "0.2.1"
 description = "ComfyUI LoRA inventory and stack nodes for Krea 2 and MiniMax H3 video"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,3 +10,6 @@ dependencies = ["Pillow>=10.4", "aiohttp>=3.10"]
 [project.urls]
 Repository = "https://github.com/marcmalade/SeventhMoon-LoRA-Studio"
 Issues = "https://github.com/marcmalade/SeventhMoon-LoRA-Studio/issues"
+
+[tool.comfy]
+DisplayName = "Seventh Moon LoRA Studio"

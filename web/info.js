@@ -305,7 +305,7 @@ export async function openInfo({ key, file, stack, onChange }) {
         cardField("Images", String(card.image_count)), cardField("Description", meta.description),
         cardField("Notes privées", meta.notes), cardField("Synchronisé le", Number.isFinite(date) ? new Date(date).toLocaleString("fr-FR") : null),
         cardField("Civitai", link ? el("a", { href: link, target: "_blank", rel: "noopener noreferrer", textContent: "Ouvrir la page Civitai" }) : null),
-        cardField("Fichier local", card.present ? "Disponible" : "Absent"), cardField("Présence sur Modal", "Inconnue"),
+        cardField("Fichier local", card.present ? "Disponible" : "Absent"),
         ...prompts.filter(([key]) => meta[key]).map(([key, label]) => cardField(label, meta[key], "sml-field-wide")));
       model.replaceChildren(el("div", { className: "sml-section-head" }, el("h3", { textContent: "Informations du modèle" }),
         el("div", { className: "sml-actions" }, promptActions, !card.present ? button("Relier un fichier", relink) : null,
