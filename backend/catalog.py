@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 
-TYPES = ("Krea 2", "MiniMax H3")
 ORIGINS = ("Civitai", "Privé", "Hybride")
 PROMPT_FIELDS = {"default_prompt", "default_negative_prompt"}
 TEXT_FIELDS = PROMPT_FIELDS | {
@@ -53,13 +52,16 @@ def file_name(value):
     name = value.replace("\\", "/")
     if any(not part or part.rstrip(" .") != part for part in name.split("/")) or any(
         ord(char) < 32 or char in ':<>|?*"' for char in name
-    ) or not name.lower().endswith(".safetensors"):
-        raise ValueError("Chemin relatif .safetensors requis.")
+    ):
+        raise ValueError("Chemin relatif LoRA requis.")
     return name
 
 
 def resolve(folders, value):
     name = file_name(value)
+    _, extensions = getattr(folders, "folder_names_and_paths", {}).get("loras", ((), None))
+    if extensions and PurePosixPath(name).suffix.lower() not in extensions:
+        return None
     result = folders.get_full_path("loras", name)
     if result is None:
         return None
@@ -87,7 +89,7 @@ def valid_fields(data):
                 isinstance(item, str) and len(item) <= 4096 for item in value
             )
         elif key == "type":
-            valid = value in TYPES
+            valid = isinstance(value, str) and len(value) <= 500 and bool(value.strip())
         elif key == "origin":
             valid = value in ORIGINS
         elif key == "favorite":
@@ -123,6 +125,11 @@ def parse_stack(raw):
         valid_fields({"triggers": triggers})
         item = {"id": key, "file": file_name(row.get("file")), "enabled": on,
                 "strength": strength, "triggers": triggers or []}
+        if "strength_clip" in row:
+            clip_strength = row["strength_clip"]
+            if type(clip_strength) not in (int, float) or not -100 <= clip_strength <= 100:
+                raise ValueError("Force de l’encodeur de texte invalide (−100 à 100).")
+            item["strength_clip"] = clip_strength
         category = row.get("category")
         if category is not None:
             if not isinstance(category, str) or len(category) > 120:
@@ -197,8 +204,6 @@ class Catalog:
                 return
             seen = {}
             for entry in self.folders.get_filename_list("loras"):
-                if not entry.lower().endswith(".safetensors"):
-                    continue
                 try:
                     name = file_name(entry)
                     path = resolve(self.folders, name)
@@ -229,13 +234,10 @@ class Catalog:
                                         sha256=? WHERE id=?""",
                                      (name, identity, fingerprint, digest, row["id"]))
                     else:
-                        stem = PurePosixPath(name).name.lower()
-                        suggested = (TYPES[0] if re.search(r"krea[-_ ]?2|^kr2[-_]", stem) else
-                                     TYPES[1] if re.search(r"^h3[-_]|minimax[-_ ]?h3", stem) else None)
                         conn.execute("""INSERT INTO loras
-                            (id,path,present,identity,fingerprint,suggested_type,updated)
-                            VALUES (?,?,1,?,?,?,?)""",
-                                     (uuid.uuid4().hex, name, identity, fingerprint, suggested, now()))
+                            (id,path,present,identity,fingerprint,updated)
+                            VALUES (?,?,1,?,?,?)""",
+                                     (uuid.uuid4().hex, name, identity, fingerprint, now()))
             self._scanned_at = time.monotonic()
 
     @staticmethod
@@ -249,7 +251,7 @@ class Catalog:
     def card(row, local_media=False):
         local = json.loads(row["user_overrides"])
         remote = json.loads(row["remote_metadata"])
-        merged = {"name": PurePosixPath(row["path"]).stem, "type": row["suggested_type"],
+        merged = {"name": PurePosixPath(row["path"]).stem, "type": remote.get("base_model") or row["suggested_type"],
                   "origin": "Privé", "triggers": [], "tags": [], "favorite": False}
         merged.update({key: value for key, value in remote.items() if key in FIELDS - PROMPT_FIELDS})
         if remote.get("version_id") and (local or local_media):

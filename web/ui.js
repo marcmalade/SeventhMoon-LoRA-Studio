@@ -1,6 +1,5 @@
 import { api } from "../../scripts/api.js";
 
-export const types = ["Krea 2", "MiniMax H3"];
 export const origins = ["Privé", "Civitai", "Hybride"];
 export const categories = ["Personnages", "Actions", "Style graphique", "Detailers", "Sliders"];
 export const display = (card) => card.data.display_name || card.data.name || card.file;

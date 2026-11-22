@@ -1,6 +1,6 @@
 # Seventh Moon LoRA Studio
 
-Inventaire local de LoRA et nodes de pile pour **Krea 2** et **MiniMax H3 vidéo**. La bibliothèque fonctionne hors ligne. Chaque ligne de pile donne accès à une fiche `ⓘ` avec sa force recommandée, ses prompts de référence et sa galerie grand format.
+Bibliothèque locale et nodes de pile LoRA pour ComfyUI. Organisez des adaptateurs pour tous vos modèles de base, réglez leurs forces dans le workflow et conservez leurs prompts et images de référence sur la fiche `ⓘ`.
 
 [English documentation](README.md)
 
@@ -21,22 +21,22 @@ Redémarrer ComfyUI. `requirements.txt` contient **Pillow** et **aiohttp**. Le c
 
 ## Brancher le node dans un workflow
 
-| Workflow | Chemin du modèle |
+| Node | Branchement |
 | --- | --- |
-| Krea 2 | `Load Diffusion Model → SML Power LoRA — Krea 2 → MODEL du sampler ou du guider` |
-| MiniMax H3 vidéo | `Load Diffusion Model → SML Power LoRA — MiniMax H3 → MODEL du guider H3` |
+| **SML Power LoRA (Model Only)** | Relier `MODEL` entre le chargeur de modèle et le sampler ou le guider. |
+| **SML Power LoRA (Model and CLIP)** | Relier `MODEL` et `CLIP`. Brancher la sortie `CLIP` sur le node d’encodage de texte. |
 
-Dans le menu du graphe, chercher **SML Power LoRA** ou ouvrir la catégorie **Seventh Moon Labs**. Relier l’entrée et la sortie `MODEL` à la branche du modèle de diffusion. La branche de texte et de conditionnement se branche comme dans le workflow existant. Le node applique les LoRA sans exiger de prompt. La sortie `STRING` peut rester débranchée et ne renvoie que les trigger words cochés explicitement.
+Dans le menu du graphe, chercher **SML Power LoRA** ou ouvrir la catégorie **Seventh Moon Labs**. Le node applique les LoRA sans exiger de prompt. La sortie `STRING` peut rester débranchée et ne renvoie que les trigger words cochés explicitement.
 
 1. Cliquer sur **Ajouter un LoRA**. Sa force recommandée est copiée dans la ligne si elle existe. La valeur initiale est `1` pour une fiche sans force enregistrée.
-2. Modifier la **force** directement dans la ligne à tout moment. Dans `ⓘ`, l’action **Utiliser dans le node** recopie volontairement la force de la fiche. Une fois choisie, la valeur de la ligne reste celle du workflow.
+2. Modifier la **force** directement dans la ligne. La variante Model and CLIP possède des valeurs `MODEL` et `CLIP` indépendantes. Mettre une force à `0` pour ignorer cette branche. Dans `ⓘ`, **Utiliser dans le node** recopie la force recommandée sur la branche modèle.
 3. Utiliser **Catégories** pour afficher des groupes repliables. Au départ, les lignes reprennent leur catégorie de fiche. Le menu `…` range une ligne dans un groupe propre au workflow. Revenir à la vue d’ordre normal pour déplacer les LoRA avec `↑` et `↓`. Le regroupement garde l’ordre d’application, l’ordre des lignes et leurs forces.
 4. Enregistrer les piles réutilisables dans **Presets**. Le workflow conserve aussi sa propre pile, ses catégories et l’état des groupes repliés.
 
 ## Bibliothèque et fiches
 
-- Ouvrir **SML LoRA Library** dans la barre latérale. Le catalogue utilise les chemins enregistrés par ComfyUI pour `loras`, sous-dossiers compris. **Scanner** actualise la présence des fichiers `.safetensors`. En cas de collision de chemin relatif entre deux racines, ComfyUI choisit le fichier de la première racine correspondante.
-- **Agrandir** ouvre la bibliothèque en grand. Les vues grille et liste offrent des filtres par famille, catégorie, origine, favoris et présence d’un prompt enregistré. Les fiches suggèrent **Personnages**, **Actions**, **Style graphique**, **Detailers** et **Sliders** et acceptent des catégories libres. **Krea 2** et **MiniMax H3** décrivent la famille du modèle. Les fichiers dont la famille est indéterminée restent consultables.
+- Ouvrir **SML LoRA Library** dans la barre latérale. Le catalogue utilise les chemins et les extensions enregistrés par ComfyUI pour `loras`, sous-dossiers compris. **Scanner** actualise la présence des fichiers. En cas de collision de chemin relatif entre deux racines, ComfyUI choisit le fichier de la première racine correspondante.
+- **Agrandir** ouvre la bibliothèque en grand. Les vues grille et liste offrent des filtres par modèle de base, catégorie, origine, favoris et présence d’un prompt enregistré. **Modèle de base** accepte une valeur libre ou celle fournie par Civitai. Les fichiers sans modèle renseigné restent consultables et sélectionnables.
 - Dans **Prompts du LoRA**, écrire ou coller un **Prompt par défaut** et éventuellement un **Prompt négatif par défaut**, y compris pour un LoRA privé. Le formulaire enregistre automatiquement les modifications. **Enregistrer maintenant** permet de lancer l’écriture immédiatement ou de réessayer après une erreur. Les actions de copie de la fiche permettent de réutiliser ces prompts.
 - Dans une fiche, ajouter ou déposer des PNG, JPEG et WebP. La visionneuse conserve les proportions. Utiliser `←` et `→` pour naviguer, `+` et `−` pour zoomer, `0` pour revenir à l’ajustement et `Échap` pour quitter le plein écran ou fermer la fiche. Au zoom, faire glisser l’image pour la déplacer. Le ruban accepte la molette et le trackpad.
 - Les commandes de galerie permettent de déplacer une image, lui donner une légende, la choisir comme couverture, remplacer une image personnelle ou la retirer. La copie locale originale reste disponible en pleine définition pendant la consultation.
@@ -46,7 +46,7 @@ Dans le menu du graphe, chercher **SML Power LoRA** ou ouvrir la catégorie **Se
 
 ## Compatibilité
 
-Les deux variantes utilisent `LoraLoaderModelOnly` du cœur ComfyUI et ciblent respectivement `comfy.model_base.Krea2` et `comfy.model_base.MiniMaxH3` vidéo. Le texte est encodé sur la branche `CLIP` du workflow. Garder dans le pipeline les nodes spécifiques aux LoRA Turbo, aux LoRA de référence et aux autres variantes qui imposent un mécanisme particulier. Un LoRA qui ne produit aucun patch natif échoue avec le nom du fichier. [Chargeur natif ComfyUI](https://github.com/Comfy-Org/ComfyUI/blob/master/nodes.py) · [Support natif MiniMax H3](https://blog.comfy.org/p/minimax-h3-day-0-support-in-comfyui)
+Les deux variantes utilisent le chargement LoRA natif de ComfyUI. Choisir un LoRA compatible avec le modèle ou l’encodeur relié. Pour un format ou un adaptateur qui exige un chargeur dédié, utiliser ce chargeur dans le workflow. Si aucun poids ne correspond aux entrées actives, SML indique le nom du fichier. Les workflows sauvegardés avec les anciens nodes SML gardent leurs connexions et réglages. [Chargeurs LoRA natifs](https://docs.comfy.org/built-in-nodes/LoraLoader)
 
 Le widget s’appuie sur `addDOMWidget` et l’entrée de workflow reste un `STRING`. Sur un frontend où le widget DOM est indisponible, le champ JSON natif reste visible et les fiches sont accessibles depuis la bibliothèque. [Extensions JavaScript ComfyUI](https://docs.comfy.org/custom-nodes/js/javascript_overview) · [Barre latérale ComfyUI](https://docs.comfy.org/custom-nodes/js/javascript_sidebar_tabs)
 

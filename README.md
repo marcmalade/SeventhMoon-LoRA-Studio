@@ -2,11 +2,11 @@
 
 [Documentation française](README.fr.md)
 
-A local LoRA library and stack nodes for **Krea 2** and **MiniMax H3 video** in ComfyUI. Build a stack with per-LoRA strengths, organize it into collapsible categories, and keep prompts, settings, and example images on each LoRA card.
+A local LoRA library and stack loaders for ComfyUI. Organize adapters for any base model, build stacks with per-LoRA strengths, and keep prompts, settings, and example images on each card.
 
 ## Installation
 
-From the ComfyUI directory, using its Python environment, run:
+Run these commands from the ComfyUI directory using its Python environment.
 
 ```sh
 git clone https://github.com/marcmalade/SeventhMoon-LoRA-Studio.git custom_nodes/SeventhMoon-LoRA-Studio
@@ -20,27 +20,27 @@ python -m pip install -r custom_nodes/SeventhMoon-LoRA-Studio/requirements.txt
 python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\SeventhMoon-LoRA-Studio\requirements.txt
 ```
 
-Restart ComfyUI. The extension uses **Pillow** and **aiohttp**. The nodes and local library work without an account or API token. Use a ComfyUI build with native support for the model family you want to load. The interface labels below match the current French UI. [ComfyUI installation guide](https://docs.comfy.org/installation/install_custom_node)
+Restart ComfyUI. The extension uses **Pillow** and **aiohttp**. The nodes and local library work without an account or API token. The interface labels below match the current French UI. [ComfyUI installation guide](https://docs.comfy.org/installation/install_custom_node)
 
 ## Add LoRAs to a workflow
 
-| Model family | MODEL path |
+| Node | Connections |
 | --- | --- |
-| Krea 2 | `Load Diffusion Model → SML Power LoRA — Krea 2 → sampler or guider` |
-| MiniMax H3 video | `Load Diffusion Model → SML Power LoRA — MiniMax H3 → H3 guider` |
+| **SML Power LoRA (Model Only)** | Connect `MODEL` between your model loader and sampler or guider. |
+| **SML Power LoRA (Model and CLIP)** | Connect both `MODEL` and `CLIP`. Send the `CLIP` output to the workflow's text encoder node. |
 
-Find **SML Power LoRA** under **Seventh Moon Labs**. Connect the `MODEL` ports on the diffusion-model branch. Keep the workflow's existing text and conditioning branch. A prompt is optional for the loader, and the optional `STRING` output contains only trigger words you explicitly select.
+Find both nodes under **Seventh Moon Labs**. A prompt is optional for the loader. The optional `STRING` output contains only trigger words you explicitly select.
 
 1. Click **Ajouter un LoRA** (Add a LoRA). The row starts with the card's recommended strength when available, or `1` otherwise.
-2. Edit the strength directly in the row. To reapply the recommendation, open `ⓘ` and click **Utiliser dans le node** (Use in node).
+2. Edit strengths directly in the row. The Model and CLIP variant gives you independent `MODEL` and `CLIP` values. Set either value to `0` to skip that branch. To reapply the recommended model strength, open `ⓘ` and click **Utiliser dans le node** (Use in node).
 3. Open **Catégories** for collapsible groups. Use `…` to assign a workflow-specific group. Return to the flat view and use `↑` or `↓` to change the application order.
 4. Use **Presets** to reuse a stack. The workflow also saves the LoRA paths, enabled states, strengths, order, selected triggers, and grouping.
 
-Both variants use the native ComfyUI model-only LoRA loader. Keep architecture-specific Turbo or reference LoRA nodes in place when a workflow calls for them. SML reports the file name if the selected LoRA applies no native patches. [Native ComfyUI loader](https://github.com/Comfy-Org/ComfyUI/blob/master/nodes.py) · [MiniMax H3 support](https://blog.comfy.org/p/minimax-h3-day-0-support-in-comfyui)
+Both variants use ComfyUI's native LoRA loading and match weights against the connected model or text encoder. Use a compatible LoRA for your checkpoint. If a format or adapter requires a dedicated loader, keep that loader in the workflow. SML reports the file name if the selected LoRA applies no native patches. Workflows saved with earlier SML nodes retain their connections and settings. [Native LoRA loaders](https://docs.comfy.org/built-in-nodes/LoraLoader)
 
 ## Library, prompts, and galleries
 
-Open **SML LoRA Library** in the sidebar. It scans ComfyUI's configured `loras` directories for `.safetensors` files, including subdirectories. Click **Agrandir** to expand the library. Use grid or list view and filter by model family, category, origin, favorites, or saved prompts.
+Open **SML LoRA Library** in the sidebar. It indexes the formats registered for `loras` in ComfyUI, including subdirectories and additional model paths. Click **Agrandir** to expand the library. Use grid or list view and filter by base model, category, origin, favorites, or saved prompts. Enter any base model in **Modèle de base** or use the value returned by Civitai. LoRAs with no model filled in are still available in the library and node picker.
 
 - **LoRA prompts**. Open **Prompts du LoRA** to type or paste a default prompt and negative prompt. Both fields support multiline text and autosave. **Enregistrer maintenant** saves immediately. Copy a saved prompt from the card whenever you want to use it.
 - **Example images**. Add or drag in PNG, JPEG, and WebP images. Use `←` and `→` to browse, `+` and `−` to zoom, `0` to fit, and `Esc` to exit full-screen view. Reorder examples, add captions, and pick a cover image.

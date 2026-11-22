@@ -1,9 +1,10 @@
 import { openInfo } from "./info.js";
-import { button, copy, display, el, imageUrl, modal, origins, request, select, types, url } from "./ui.js";
+import { button, copy, display, el, imageUrl, modal, origins, request, select, url } from "./ui.js";
 
 const PER_PAGE = 32;
 const logo = new URL("./logo.png", import.meta.url).href;
 const normalize = (text) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("fr");
+const familyKey = (value) => value ? `type:${value}` : "unknown";
 
 function about() {
   const { dialog } = modal("Seventh Moon LoRA Studio", "sml-small");
@@ -13,14 +14,14 @@ function about() {
     el("p", { textContent: "Ouvrez une fiche avec ⓘ. Utilisez ← et → dans la galerie, + et − pour zoomer et Échap pour fermer." })));
 }
 
-export function library(root, { choose, type, active, expanded = false } = {}) {
+export function library(root, { choose, active, expanded = false } = {}) {
   let cards = [];
   let page = 0;
-  let family = "";
   let categoryValue = "";
   let loadRevision = 0;
   const search = el("input", { type: "search", placeholder: "Rechercher un LoRA…", "aria-label": "Rechercher un LoRA" });
   const origin = select([["", "Toutes les origines"], ...origins], "", "Origine");
+  const family = select([["", "Tous les modèles de base"]], "", "Modèle de base");
   const category = select([["", "Toutes les catégories"]], "", "Catégorie");
   const order = select([["name", "Nom A–Z"], ["date", "Dernière modification"]], "name", "Ordre");
   const favorites = el("input", { type: "checkbox" });
@@ -49,18 +50,10 @@ export function library(root, { choose, type, active, expanded = false } = {}) {
         el("a", { href: url("/backup/json"), download: "", textContent: "Exporter JSON" }),
         button("Importer", () => backupFile.click()), button("Aide", about))));
   }
-  const familySwitch = el("div", { className: "sml-family-switch", role: "group", "aria-label": "Famille de modèles" });
-  const families = [["", "Tous"], ...types.map((family) => [family, family])];
-  for (const [value, label] of families) familySwitch.append(button(label, () => {
-    family = value;
-    page = 0;
-    render();
-  }, { "aria-pressed": String(value === "") }));
   root.replaceChildren(el("div", { className: "sml sml-library" },
     el("div", { className: "sml-library-top" }, !choose && !expanded ? el("h2", { textContent: "Bibliothèque LoRA" }) : null,
       search, tools),
-    !choose ? familySwitch : null,
-    el("div", { className: "sml-library-filters" }, origin, category, order),
+    el("div", { className: "sml-library-filters" }, family, origin, category, order),
     el("div", { className: "sml-library-facets" }, el("label", { className: "sml-check" }, favorites, "Favoris"),
       el("label", { className: "sml-check" }, withPrompt, "Avec un prompt"), state), grid, paging, backupFile));
 
@@ -71,6 +64,13 @@ export function library(root, { choose, type, active, expanded = false } = {}) {
       const response = await request(rescan ? "/scan" : "/catalog", rescan ? "POST" : "GET");
       if (revision !== loadRevision || !root.isConnected) return;
       cards = response;
+      const selectedFamily = family.value;
+      const available = choose ? cards.filter((card) => card.present) : cards;
+      const names = [...new Set(available.map((card) => card.data.type).filter(Boolean))].sort(collator.compare);
+      const families = names.map((name) => new Option(name, familyKey(name)));
+      if (available.some((card) => !card.data.type)) families.push(new Option("Modèle de base non renseigné", "unknown"));
+      family.replaceChildren(new Option("Tous les modèles de base", ""), ...families);
+      family.value = families.some((option) => option.value === selectedFamily) ? selectedFamily : "";
       const categories = [...new Set(cards.map((card) => card.data.category).filter(Boolean))].sort(collator.compare);
       category.replaceChildren(new Option("Toutes les catégories", ""), ...categories.map((value) => new Option(value, value)));
       category.value = categories.includes(categoryValue) ? categoryValue : "";
@@ -80,12 +80,10 @@ export function library(root, { choose, type, active, expanded = false } = {}) {
 
   function render() {
     const query = normalize(search.value.trim()).split(/\s+/).filter(Boolean);
-    const selectedType = type ?? family;
-    [...familySwitch.children].forEach((child, index) => child.setAttribute("aria-pressed", String(families[index][0] === selectedType)));
     const results = cards.filter((card) => {
       const data = card.data;
-      const text = normalize([display(card), data.name, card.file, data.author, data.category, ...(data.tags ?? [])].join(" "));
-      return (!choose || card.present) && (!selectedType || data.type === selectedType || (choose && !data.type)) &&
+      const text = normalize([display(card), data.name, card.file, data.type, data.author, data.category, ...(data.tags ?? [])].join(" "));
+      return (!choose || card.present) && (!family.value || familyKey(data.type) === family.value) &&
         (!origin.value || data.origin === origin.value) && (!category.value || data.category === category.value) &&
         (!favorites.checked || data.favorite) && (!withPrompt.checked || card.has_prompt) && query.every((term) => text.includes(term));
     });
@@ -113,7 +111,7 @@ export function library(root, { choose, type, active, expanded = false } = {}) {
         card.has_prompt ? "Prompt enregistré" : ""].filter(Boolean).join(" · ");
       return el("article", { className: "sml-library-card" },
         el("button", { type: "button", className: "sml-library-cover", onclick: inspect, "aria-label": `Fiche de ${display(card)}` }, cover,
-          el("span", { className: "sml-badge", textContent: card.data.type || "Architecture à préciser" })),
+          el("span", { className: "sml-badge", textContent: card.data.type || "Modèle de base non renseigné" })),
         el("div", { className: "sml-card-body" }, title,
           el("span", { className: "sml-muted", textContent: details }),
           facts ? el("span", { className: "sml-card-facts", textContent: facts }) : null,
@@ -125,7 +123,7 @@ export function library(root, { choose, type, active, expanded = false } = {}) {
   }
 
   search.oninput = () => { page = 0; render(); };
-  for (const field of [origin, category, order, favorites, withPrompt]) field.onchange = () => { categoryValue = category.value; page = 0; render(); };
+  for (const field of [family, origin, category, order, favorites, withPrompt]) field.onchange = () => { categoryValue = category.value; page = 0; render(); };
   backupFile.onchange = async () => {
     const file = backupFile.files[0];
     backupFile.value = "";
@@ -141,10 +139,10 @@ export function library(root, { choose, type, active, expanded = false } = {}) {
   return { search };
 }
 
-export function pickLoRA(type, choose) {
+export function pickLoRA(choose) {
   const { dialog } = modal("Ajouter un LoRA", "sml-picker");
   const root = el("div");
   dialog.append(root);
-  const picker = library(root, { type, choose: (card) => { choose(card); dialog.close(); } });
+  const picker = library(root, { choose: (card) => { choose(card); dialog.close(); } });
   picker.search.focus();
 }

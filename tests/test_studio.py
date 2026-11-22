@@ -13,7 +13,7 @@ from PIL import Image
 
 from backend import backup
 from backend.api import Job, register
-from backend.catalog import SCHEMA, Catalog, parse_stack
+from backend.catalog import SCHEMA, Catalog, parse_stack, resolve
 from backend.civitai import Civitai, RemoteError, association
 from backend.media import Media
 
@@ -21,6 +21,7 @@ from backend.media import Media
 class Folders:
     def __init__(self, root):
         self.root = root
+        self.folder_names_and_paths = {"loras": ([str(root)], {".safetensors", ".pt", ".sft"})}
 
     def get_filename_list(self, kind):
         assert kind == "loras"
@@ -45,7 +46,7 @@ class Storage:
         self.addCleanup(work.cleanup)
         self.root = Path(work.name)
         self.folders = Folders(self.root / "loras")
-        self.weight = self.folders.root / "sous-dossier" / "kr2-test🌙.safetensors"
+        self.weight = self.folders.root / "sous-dossier" / "style-test🌙.safetensors"
         self.weight.parent.mkdir(parents=True)
         self.weight.write_bytes(b"test-local")
         self.catalog = Catalog(self.root / "data", self.folders)
@@ -102,7 +103,7 @@ class CatalogTest(Storage, unittest.TestCase):
         self.media.change(self.key, first, action="cover")
         generation = {"prompt": "après minuit 🌙\nforêt", "negative_prompt": "bruit", "settings": '{"seed": 35}'}
         self.media.change(self.key, first, action="generation", value=generation)
-        file = "sous-dossier/kr2-test🌙.safetensors"
+        file = "sous-dossier/style-test🌙.safetensors"
         self.catalog.save_preset("Deux LoRA", {"enabled": False, "rows": [
             {"file": file, "id": self.key, "enabled": True, "strength": .7, "triggers": ["été"]},
             {"file": file, "enabled": False, "strength": -1},
@@ -148,9 +149,34 @@ class CatalogTest(Storage, unittest.TestCase):
         self.assertEqual(stack["rows"][0]["strength"], -0.75)
         self.assertFalse(stack["enabled"] or stack["rows"][0]["enabled"])
         self.assertEqual(stack["rows"][0]["triggers"], ["🌙\nété"])
-        for value in ("../a.safetensors", "C:\\a.safetensors", "\\\\share\\a.safetensors", "x.ckpt"):
+        for value in ("../a.safetensors", "C:\\a.safetensors", "\\\\share\\a.safetensors", "a:stream.pt"):
             with self.assertRaises(ValueError):
                 parse_stack({"rows": [{"file": value}]})
+
+    def test_catalog_indexes_registered_formats_and_accepts_any_base_model(self):
+        folder = self.weight.parent
+        (folder / "unseen.pt").write_bytes(b"weights fixture")
+        (folder / "another.sft").write_bytes(b"weights fixture")
+        (folder / "notes.txt").write_text("not a weight file")
+        self.catalog.scan(force=True)
+        cards = {card["file"]: card for card in self.catalog.cards()}
+        for name in ("unseen.pt", "another.sft"):
+            self.assertIn(f"sous-dossier/{name}", cards)
+        self.assertIsNone(resolve(self.folders, "sous-dossier/notes.txt"))
+        self.assertNotIn("sous-dossier/notes.txt", cards)
+        new_card = cards["sous-dossier/unseen.pt"]
+        self.assertIsNone(new_card["data"]["type"])
+        custom_type = "Studio diffusion / v3"
+        updated = self.catalog.edit(new_card["id"], {"type": custom_type})
+        self.assertEqual(updated["data"]["type"], custom_type)
+
+    def test_independent_text_encoder_strength_round_trips_in_preset(self):
+        self.catalog.save_preset("Encoder only", {"rows": [{"file": "text.pt", "strength": 0, "strength_clip": -0.5}]})
+        row = self.catalog.presets()[0]["stack"]["rows"][0]
+        self.assertEqual((row["strength"], row["strength_clip"]), (0, -0.5))
+        for value in (101, "0.5", float("nan"), True):
+            with self.assertRaisesRegex(ValueError, "encodeur"):
+                parse_stack({"rows": [{"file": "text.pt", "strength_clip": value}]})
 
     def test_private_prompt_and_strength_are_catalog_data(self):
         prompt = "forêt au crépuscule 🌙\nplan large"
@@ -204,7 +230,7 @@ class ServiceTest(Storage, unittest.IsolatedAsyncioTestCase):
         async def remote_json(session, url):
             calls.append(url)
             if url.endswith("model-versions/42"):
-                return {"id": 42, "modelId": 3, "trainedWords": ["remote"], "images": [entry(1)]}
+                return {"id": 42, "modelId": 3, "baseModel": "New Base Model", "trainedWords": ["remote"], "images": [entry(1)]}
             if url.endswith("models/3"):
                 return {"name": "Model", "creator": {"username": "Auteur"}}
             if "modelId=3" in url:
@@ -219,6 +245,7 @@ class ServiceTest(Storage, unittest.IsolatedAsyncioTestCase):
 
         with patch.object(civitai, "json", remote_json), patch.object(civitai, "request", remote_image):
             await civitai.sync(Job(self.key), self.key, "url", "42", True)
+            self.assertEqual(self.catalog.get(self.key)["data"]["type"], "New Base Model")
             page = self.media.page(self.key, 0, 100)
             self.assertEqual(page["total"], 6)
             self.assertEqual([(r["cached"], r["preview"]) for r in page["items"][1:]], [(False, True)] * 5)

@@ -2,30 +2,25 @@ import { openInfo } from "./info.js";
 import { pickLoRA } from "./library.js";
 import { button, categoryField, display, el, modal, promptField, request } from "./ui.js";
 
-export const nodeTypes = new Map([["SMLPowerLoRAKrea2", "Krea 2"], ["SMLPowerLoRAMiniMaxH3", "MiniMax H3"]]);
-export const nodeControls = new WeakMap();
+const nodeControls = new WeakMap();
 let lastNode;
 const defaultLayout = () => ({ grouped: false, collapsed: [] });
-
-function createRow(card) {
-  return { id: card.id, file: card.file, enabled: true, strength: card.data.strength ?? 1,
-    category: card.data.category?.trim().slice(0, 120) || undefined, triggers: [] };
-}
 
 export function addToActiveNode(app, card) {
   const selected = Object.values(app.canvas?.selected_nodes || {});
   const node = selected.length === 1 ? selected[0] : selected.length === 0 ? lastNode : null;
   const controls = node?.graph && nodeControls.get(node);
-  const type = nodeTypes.get(node?.comfyClass || node?.type);
-  if (!controls || !card.present || (card.data.type && type !== card.data.type)) return false;
+  if (!controls || !card.present) return false;
   controls.add(card);
   return true;
 }
 
 export function installWidget(node) {
-  const type = nodeTypes.get(node.comfyClass || node.type);
+  const type = node.comfyClass || node.type;
   const originalIndex = node.widgets?.findIndex((widget) => widget.name === "sml_stack");
-  if (!type || originalIndex === undefined || originalIndex < 0 || typeof node.addDOMWidget !== "function") return;
+  if (!type?.startsWith("SMLPowerLoRA") || originalIndex === undefined || originalIndex < 0 || typeof node.addDOMWidget !== "function") return;
+  const withClip = type === "SMLPowerLoRAWithCLIP";
+  const rowHeight = withClip ? 52 : 40;
   const original = node.widgets[originalIndex];
   let state = { version: 1, enabled: true, rows: [], layout: defaultLayout() };
   let invalid;
@@ -47,7 +42,7 @@ export function installWidget(node) {
     state.layout.collapsed = groups.every((group) => state.layout.collapsed.includes(group)) ? [] : groups;
     commit();
   }, { hidden: true });
-  const add = button("+ Ajouter un LoRA", () => pickLoRA(type, addCard), { className: "sml-node-add" });
+  const add = button("+ Ajouter un LoRA", () => pickLoRA(addCard), { className: "sml-node-add" });
   host.append(el("div", { className: "sml-node-header" }, heading,
     el("div", { className: "sml-actions" }, groupView, collapseAll, presets)), rows, add, info);
   host.addEventListener("pointerdown", (event) => { lastNode = node; event.stopPropagation(); });
@@ -65,7 +60,8 @@ export function installWidget(node) {
       const layout = { grouped: data.layout?.grouped === true,
         collapsed: Array.isArray(data.layout?.collapsed) ? [...data.layout.collapsed] : [] };
       state = { version: data.version ?? 1, enabled: data.enabled !== false, layout,
-        rows: data.rows.map((row) => ({ ...row, triggers: row.triggers || [] })) };
+        rows: data.rows.map((row) => ({ ...row, triggers: row.triggers || [],
+          ...(withClip ? { strength_clip: row.strength_clip ?? row.strength ?? 1 } : {}) })) };
       invalid = undefined;
       render();
       hydrate();
@@ -86,7 +82,15 @@ export function installWidget(node) {
   widget.options.serialize = true;
   widget.computeSize = (width) => [width, minHeight()];
   widget.serializeValue = () => invalid ?? JSON.stringify({ version: state.version, enabled: state.enabled,
-    rows: state.rows.map(({ id, file, enabled, strength, triggers }) => ({ id, file, enabled, strength, triggers })) });
+    rows: state.rows.map(({ id, file, enabled, strength, strength_clip, triggers }) => ({ id, file, enabled, strength, triggers,
+      ...(withClip ? { strength_clip } : {}) })) });
+
+  function createRow(card) {
+    const strength = card.data.strength ?? 1;
+    return { id: card.id, file: card.file, enabled: true, strength,
+      ...(withClip ? { strength_clip: strength } : {}),
+      category: card.data.category?.trim().slice(0, 120) || undefined, triggers: [] };
+  }
 
   function groupFor(row) {
     return row.category || (cards.get(row.id) || cards.get(row.file))?.data.category?.trim().slice(0, 120) || "";
@@ -107,13 +111,9 @@ export function installWidget(node) {
     const label = card ? display(card) : row.file.split("/").pop();
     const active = el("input", { type: "checkbox", checked: row.enabled !== false, "aria-label": `Activer ${label}` });
     active.onchange = () => { row.enabled = active.checked; commit(false); };
-    const strength = el("input", { type: "number", value: row.strength, min: -100, max: 100, step: "any", "aria-label": `Force de ${label}` });
-    strength.onchange = () => {
-      if (strength.value !== "" && strength.validity.valid) row.strength = strength.valueAsNumber;
-      else strength.value = row.strength;
-      commit(false);
-    };
-    const changeFile = button(label, () => pickLoRA(type, (selected) => {
+    const strength = strengthControl(row, "strength", label, withClip ? "MODEL" : null);
+    const clipStrength = withClip ? strengthControl(row, "strength_clip", label, "CLIP") : null;
+    const changeFile = button(label, () => pickLoRA((selected) => {
       const rowIndex = state.rows.indexOf(row);
       if (rowIndex < 0 || selected.file === row.file) return;
       remember(selected);
@@ -123,13 +123,25 @@ export function installWidget(node) {
     }), { className: "sml-node-name", title: card?.present === false ? `Fichier absent · ${row.file}` : row.file });
     const open = button("ⓘ", () => openRow(row), { className: "sml-node-info", "aria-label": `Infos de ${label}` });
     const grouped = state.layout.grouped;
-    return el("div", { className: `sml-node-row${grouped ? " sml-row-grouped" : ""}${card?.present === false ? " sml-missing" : ""}` },
-      active, changeFile, strength, open,
+    const classes = ["sml-node-row", grouped && "sml-row-grouped", withClip && "sml-row-clip", card?.present === false && "sml-missing"];
+    return el("div", { className: classes.filter(Boolean).join(" ") },
+      active, changeFile, strength, clipStrength, open,
       grouped ? el("span", { className: "sml-row-order", title: "Position dans l’ordre d’application", textContent: String(index + 1) }) : null,
       grouped ? null : button("↑", () => move(index, -1), { disabled: index === 0, "aria-label": "Monter" }),
       grouped ? null : button("↓", () => move(index, 1), { disabled: index === state.rows.length - 1, "aria-label": "Descendre" }),
       button("…", () => editRowCategory(row, label), { "aria-label": `Ranger ${label}` }),
       button("×", () => { state.rows.splice(index, 1); commit(); }, { "aria-label": "Retirer le LoRA" }));
+  }
+
+  function strengthControl(row, field, label, branch) {
+    const input = el("input", { type: "number", value: row[field], min: -100, max: 100, step: "any",
+      "aria-label": branch ? `Force ${branch} de ${label}` : `Force de ${label}` });
+    input.onchange = () => {
+      if (input.value !== "" && input.validity.valid) row[field] = input.valueAsNumber;
+      else input.value = row[field];
+      commit(false);
+    };
+    return branch ? el("label", { className: "sml-branch-strength" }, branch, input) : input;
   }
 
   function render() {
@@ -142,7 +154,7 @@ export function installWidget(node) {
     collapseAll.textContent = [...groups.keys()].every((group) => state.layout.collapsed.includes(group)) ? "Déplier" : "Replier";
     if (!state.rows.length) rows.append(el("span", { className: "sml-node-empty", textContent: "Aucun LoRA dans la pile" }));
     else if (!state.layout.grouped) {
-      rowsHeight = state.rows.length * 40;
+      rowsHeight = state.rows.length * rowHeight;
       for (const [index, row] of state.rows.entries()) rows.append(renderRow(index, row));
     } else {
       rowsHeight = 0;
@@ -161,7 +173,7 @@ export function installWidget(node) {
         rowsHeight += 34;
         if (!closed) {
           for (const [index, row] of entries) rows.append(renderRow(index, row));
-          rowsHeight += entries.length * 40;
+          rowsHeight += entries.length * rowHeight;
         }
       }
     }
@@ -172,7 +184,7 @@ export function installWidget(node) {
       lastHeight = height;
       requestAnimationFrame(() => {
         if (node.flags?.collapsed || height !== lastHeight) return;
-        const width = Math.max(410, node.size[0]);
+        const width = Math.max(withClip ? 470 : 410, node.size[0]);
         const [, computed] = node.computeSize();
         const current = node.size[1];
         node.setSize([width, Math.max(computed, previous ? current + height - previous : current, height + 60)]);

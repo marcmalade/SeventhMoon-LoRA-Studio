@@ -1,9 +1,9 @@
 import { gallery } from "./gallery.js";
-import { autoSave, button, categoryField, copy, display, el, modal, origins, request, select, types } from "./ui.js";
+import { autoSave, button, categoryField, copy, display, el, modal, origins, request, select } from "./ui.js";
 
 const jobs = new Map();
 const fields = [
-  ["name", "Nom original"], ["display_name", "Nom d’affichage"], ["type", "Architecture"],
+  ["name", "Nom original"], ["display_name", "Nom d’affichage"], ["type", "Modèle de base"],
   ["version", "Version"], ["author", "Auteur"], ["origin", "Origine"],
   ["strength", "Force recommandée"], ["category", "Catégorie"], ["favorite", "Favori"],
   ["description", "Description"], ["notes", "Notes privées"], ["tags", "Tags"],
@@ -59,8 +59,10 @@ function editCard(card, onSave) {
     const value = card.data[key];
     let input;
     let suggestions;
-    if (key === "type" || key === "origin") {
-      input = select(key === "type" ? [["", "Indéterminée"], ...types] : origins, value, label);
+    if (key === "origin") {
+      input = select(origins, value, label);
+    } else if (key === "type") {
+      input = el("input", { type: "text", value: value ?? "", maxLength: 500, placeholder: "Nom ou famille du modèle" });
     } else if (key === "category") {
       ({ input, list: suggestions } = categoryField(value ?? "", label));
     } else if (["description", "notes", "tags"].includes(key)) {
@@ -76,7 +78,8 @@ function editCard(card, onSave) {
       if (key === "strength") return input.value === "" ? null : Number(input.value);
       if (key === "tags") return input.value.split("\n").map((tag) => tag.trim()).filter(Boolean);
       if (key === "category") return input.value.trim();
-      return key === "type" && !input.value ? null : input.value;
+      if (key === "type") return input.value.trim() || null;
+      return input.value;
     };
   }
   const words = el("div", { className: "sml-trigger-edit" });
@@ -298,7 +301,7 @@ export async function openInfo({ key, file, stack, onChange }) {
           status(`Force ${meta.strength} copiée dans la ligne du node.`);
         }, { className: "sml-text-button" }) : null);
       const grid = el("dl", { className: "sml-meta-grid" },
-        cardField("Nom original", meta.name), cardField("Architecture", meta.type), cardField("Origine", meta.origin),
+        cardField("Nom original", meta.name), cardField("Modèle de base", meta.type), cardField("Origine", meta.origin),
         cardField("Fichier", card.file), cardField("Version", meta.version), cardField("Auteur", meta.author),
         cardField("Nom d’affichage", meta.display_name), cardField("Force recommandée", strengthActions), cardField("Catégorie", meta.category),
         cardField("Trigger words", words.length ? triggers : null), cardField("Tags", meta.tags?.length ? meta.tags.join(", ") : null),

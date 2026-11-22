@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import aiohttp
 
-from .catalog import TYPES, dump, now
+from .catalog import dump, now
 from .media import MAX_IMAGE
 
 
@@ -283,10 +283,8 @@ class Civitai:
                       "base_model": base, "version_id": version_id, "model_id": model_id, "extended": extended,
                       "url": f"https://civitai.com/models/{model_id}?modelVersionId={version_id}" if model_id
                       else BASE + f"model-versions/{version_id}", "synced_at": now()}
-            compact = re.sub(r"[^a-z0-9]", "", base.lower())
-            for name, alias in zip(TYPES, ("krea2", "minimaxh3")):
-                if alias in compact:
-                    remote["type"] = name
+            if base.strip():
+                remote["type"] = base.strip()
             strength = version.get("recommendedStrength")
             if type(strength) in (int, float) and -100 <= strength <= 100:
                 remote["strength"] = strength
