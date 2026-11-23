@@ -17,7 +17,7 @@ python -m pip install -r custom_nodes/SeventhMoon-LoRA-Studio/requirements.txt
 - **Windows Portable**. Depuis la racine `ComfyUI_windows_portable`, après la copie ou le clonage dans `ComfyUI/custom_nodes/`, exécuter `python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\SeventhMoon-LoRA-Studio\requirements.txt`.
 - **ComfyUI Manager**. Si l’installation par URL Git est disponible, utiliser l’adresse du dépôt, puis redémarrer ComfyUI. [Guide officiel d’installation](https://docs.comfy.org/installation/install_custom_node)
 
-Redémarrer ComfyUI. `requirements.txt` contient **Pillow** et **aiohttp**. Le catalogue, les fiches privées, les prompts et les nodes sont utilisables sans compte ni clé API. L’exécution du workflow utilise le moteur ComfyUI et les poids choisis par l’utilisateur.
+Redémarrer ComfyUI. Le node accepte les versions de Pillow et d’aiohttp utilisées par ComfyUI, y compris quand d’autres extensions ont besoin de Pillow 12. Avant Pillow 13, les aperçus affichent dans le navigateur les fichiers déjà stockés. À partir de Pillow 13, LoRA Studio peut produire des miniatures plus légères sur le serveur. Le catalogue, les fiches privées, les prompts et les nodes sont utilisables sans compte ni clé API.
 
 Pour mettre à jour une installation Git, lancer `git pull --ff-only` dans le dossier du node. Pour une installation ZIP, remplacer ce dossier par celui du dernier ZIP. Réinstaller les dépendances et redémarrer ComfyUI. La bibliothèque est stockée dans le dossier utilisateur de ComfyUI.
 

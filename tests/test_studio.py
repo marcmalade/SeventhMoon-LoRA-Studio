@@ -95,6 +95,33 @@ class CatalogTest(Storage, unittest.TestCase):
         with self.assertRaises(ValueError):
             media.add(self.key, b"<svg onload='x' />")
 
+    def test_older_pillow_keeps_previews_without_using_the_image_decoder(self):
+        samples = [(image(22, fmt), extension) for fmt, extension in (
+            ("PNG", "png"), ("JPEG", "jpg"), ("WEBP", "webp"),
+        )]
+        alpha = io.BytesIO()
+        Image.new("RGBA", (8, 8), (16, 32, 64, 128)).save(alpha, "WEBP")
+        samples.append((alpha.getvalue(), "webp"))
+        lossless = io.BytesIO()
+        Image.new("RGB", (8, 8), (16, 32, 64)).save(lossless, "WEBP", lossless=True)
+        samples.append((lossless.getvalue(), "webp"))
+
+        oversized = bytearray(samples[0][0])
+        oversized[16:20] = (200_000).to_bytes(4, "big")
+        with (patch("backend.media.CAN_RENDER_THUMBNAILS", False),
+              patch("backend.media.Image.open", side_effect=AssertionError("Decoded on the server"))):
+            for content, extension in samples:
+                with self.subTest(extension=extension, prefix=content[:16]):
+                    mid = self.media.add(self.key, content)
+                    original = self.media.file(mid, "original")
+                    self.assertEqual(original, self.media.file(mid, "thumbnail"))
+                    self.assertEqual(original.suffix, "." + extension)
+                    self.assertEqual(original.read_bytes(), content)
+                    self.assertEqual(self.media.decode(content, preview_only=True), (None, original.name))
+            for invalid in (b"<svg/>", samples[0][0][:-12], samples[1][0][:-2], samples[2][0][:-2], bytes(oversized)):
+                with self.assertRaises(ValueError):
+                    self.media.add(self.key, invalid)
+
     def test_zip_roundtrip_and_json_override_precedence(self):
         self.catalog.edit(self.key, {"name": "Nom importé", "favorite": True})
         first = self.media.add(self.key, image(2))
@@ -320,6 +347,8 @@ class ServiceTest(Storage, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status, 200)
                 mid = (await response.json())["id"]
                 response = await client.get(f"/sml-lora/images/{mid}/original")
+                self.assertEqual(response.headers["Content-Type"], "image/png")
+                self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
                 self.assertEqual(await response.read(), image(17))
                 response = await client.get(route + "/media")
                 self.assertEqual((await response.json())["total"], 1)

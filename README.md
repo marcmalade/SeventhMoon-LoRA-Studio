@@ -22,7 +22,7 @@ python -m pip install -r custom_nodes/SeventhMoon-LoRA-Studio/requirements.txt
 python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\SeventhMoon-LoRA-Studio\requirements.txt
 ```
 
-Restart ComfyUI. The extension uses **Pillow** and **aiohttp**. The nodes and local library work without an account or API token. The interface labels below match the current French UI. [ComfyUI installation guide](https://docs.comfy.org/installation/install_custom_node)
+Restart ComfyUI. The extension works with Pillow and aiohttp versions used by ComfyUI, including installations that share Pillow 12 with other extensions. On Pillow versions before 13, the browser displays the image previews from the stored files. With Pillow 13 or newer, LoRA Studio can generate smaller preview files on the server. The nodes and local library work without an account or API token. The interface labels below match the current French UI. [ComfyUI installation guide](https://docs.comfy.org/installation/install_custom_node)
 
 To update a Git installation, run `git pull --ff-only` inside the existing node folder. For a ZIP installation, replace the existing node folder with the one from the latest ZIP. Rerun the dependency command and restart ComfyUI. The library is stored in the ComfyUI user directory.
 

@@ -13,7 +13,7 @@ from aiohttp import web
 
 from . import backup
 from .civitai import Civitai, association
-from .media import MAX_IMAGE, Media
+from .media import IMAGE_CONTENT_TYPES, MAX_IMAGE, Media
 
 
 @dataclass
@@ -122,7 +122,10 @@ def register(routes, catalog):
     @route("GET", "/images/{mid}/{variant:original|thumbnail}")
     async def image(request):
         path = await asyncio.to_thread(media.file, request.match_info["mid"], request.match_info["variant"])
-        return web.FileResponse(path, headers={"Cache-Control": "private, no-cache", "X-Content-Type-Options": "nosniff"})
+        return web.FileResponse(path, headers={"Cache-Control": "private, no-cache",
+                                               "Content-Type": IMAGE_CONTENT_TYPES[path.suffix],
+                                               "Content-Security-Policy": "default-src 'none'; sandbox",
+                                               "X-Content-Type-Options": "nosniff"})
 
     @route("POST", "/cards/{key}/media/{mid}/download")
     async def download(request):

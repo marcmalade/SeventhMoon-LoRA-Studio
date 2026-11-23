@@ -10,14 +10,18 @@ import uuid
 import warnings
 from pathlib import Path
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from packaging.version import Version
+from PIL import Image, ImageOps, UnidentifiedImageError, __version__ as pillow_version
 
 from .catalog import dump, now
+from .image_headers import identify
 
 
 MAX_IMAGE = 48 * 1024 * 1024
 MAX_PIXELS = 64_000_000
 FORMATS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
+IMAGE_CONTENT_TYPES = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+CAN_RENDER_THUMBNAILS = Version(pillow_version) >= Version("13.0.0")
 BLOB = re.compile(r"[a-f0-9]{64}\.(jpg|png|webp)\Z")
 GENERATION_FIELDS = ("prompt", "negative_prompt", "settings")
 
@@ -59,6 +63,16 @@ class Media:
     def decode(self, content, preview_only=False):
         if not 0 < len(content) <= MAX_IMAGE:
             raise ValueError("Chaque image doit contenir au plus 48 Mio.")
+        if not CAN_RENDER_THUMBNAILS:
+            # Older Pillow versions have known decoder bugs for untrusted images.
+            # Serve the original or Civitai's preview for the browser to render.
+            extension, dimensions = identify(content)
+            if dimensions is None or min(dimensions) < 1:
+                raise ValueError("Image PNG, JPEG ou WebP valide requise.")
+            if dimensions[0] * dimensions[1] > MAX_PIXELS:
+                raise ValueError("L’image dépasse 64 mégapixels.")
+            blob = self.store(content, extension)
+            return None if preview_only else blob, blob
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", Image.DecompressionBombWarning)
