@@ -108,7 +108,4 @@ def create_nodes(catalog):
         def apply(self, model, clip, sml_stack):
             return self.apply_stack(model, clip, sml_stack)
 
-    class LegacyPowerLoRA(PowerLoRA):
-        DEPRECATED = True
-
-    return PowerLoRA, PowerLoRAWithCLIP, LegacyPowerLoRA
+    return PowerLoRA, PowerLoRAWithCLIP

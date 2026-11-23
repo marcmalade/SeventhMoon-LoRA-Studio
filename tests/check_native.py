@@ -59,8 +59,7 @@ def verify(root, work):
     catalog = Catalog(work / "catalog", folder_paths)
     entries = {card["file"] for card in catalog.cards()}
     assert entries == {"fixtures/both.safetensors", "fixtures/text.pt"}, entries
-    model_only, model_and_clip, legacy = create_nodes(catalog)
-    assert legacy.DEPRECATED and legacy.RETURN_TYPES == model_only.RETURN_TYPES
+    model_only, model_and_clip = create_nodes(catalog)
 
     model_row = {"file": "fixtures/both.safetensors", "strength": 0.25, "strength_clip": 0.75}
     text_row = {"file": "fixtures/text.pt", "strength": 0, "strength_clip": -0.5}

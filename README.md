@@ -1,19 +1,21 @@
 # Seventh Moon LoRA Studio
 
-[Documentation française](README.fr.md)
-
 A local LoRA library and stack loaders for ComfyUI. Organize adapters for any base model, build stacks with per-LoRA strengths, and keep prompts, settings, and example images on each card.
+
+**[Download the latest ZIP](https://github.com/marcmalade/SeventhMoon-LoRA-Studio/releases/latest/download/SeventhMoon-LoRA-Studio.zip)** · [Latest release and notes](https://github.com/marcmalade/SeventhMoon-LoRA-Studio/releases/latest) · [Documentation française](README.fr.md)
 
 ## Installation
 
-Run these commands from the ComfyUI directory using its Python environment.
+**ZIP installation.** Download the latest ZIP above and extract it into `ComfyUI/custom_nodes/`. The result should be `ComfyUI/custom_nodes/SeventhMoon-LoRA-Studio/__init__.py`. Install the dependencies using ComfyUI's Python 3.11 or newer.
+
+**Git installation.** Run these commands from the ComfyUI directory using its Python environment.
 
 ```sh
 git clone https://github.com/marcmalade/SeventhMoon-LoRA-Studio.git custom_nodes/SeventhMoon-LoRA-Studio
 python -m pip install -r custom_nodes/SeventhMoon-LoRA-Studio/requirements.txt
 ```
 
-- **ZIP**. Extract the current source ZIP, move `SeventhMoon-LoRA-Studio-main` into `ComfyUI/custom_nodes/`, and rename it to `SeventhMoon-LoRA-Studio`. `__init__.py` should be at the root of that folder. Then install the requirements. [Download the current source ZIP](https://github.com/marcmalade/SeventhMoon-LoRA-Studio/archive/refs/heads/main.zip)
+- **ZIP dependencies**. From the ComfyUI directory, run the `pip install` command above after extracting the ZIP.
 - **Windows Portable**. After cloning or extracting into `ComfyUI/custom_nodes/`, run the command below from the portable installation directory.
 
 ```cmd
@@ -21,6 +23,8 @@ python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\SeventhMoon-LoR
 ```
 
 Restart ComfyUI. The extension uses **Pillow** and **aiohttp**. The nodes and local library work without an account or API token. The interface labels below match the current French UI. [ComfyUI installation guide](https://docs.comfy.org/installation/install_custom_node)
+
+To update a Git installation, run `git pull --ff-only` inside the existing node folder. For a ZIP installation, replace the existing node folder with the one from the latest ZIP. Rerun the dependency command and restart ComfyUI. The library is stored in the ComfyUI user directory.
 
 ## Add LoRAs to a workflow
 
@@ -36,7 +40,9 @@ Find both nodes under **Seventh Moon Labs**. A prompt is optional for the loader
 3. Open **Catégories** for collapsible groups. Use `…` to assign a workflow-specific group. Return to the flat view and use `↑` or `↓` to change the application order.
 4. Use **Presets** to reuse a stack. The workflow also saves the LoRA paths, enabled states, strengths, order, selected triggers, and grouping.
 
-Both variants use ComfyUI's native LoRA loading and match weights against the connected model or text encoder. Use a compatible LoRA for your checkpoint. If a format or adapter requires a dedicated loader, keep that loader in the workflow. SML reports the file name if the selected LoRA applies no native patches. Workflows saved with earlier SML nodes retain their connections and settings. [Native LoRA loaders](https://docs.comfy.org/built-in-nodes/LoraLoader)
+Both variants use ComfyUI's native LoRA loading and match weights against the connected model or text encoder. Use a compatible LoRA for your checkpoint. If a format or adapter requires a dedicated loader, keep that loader in the workflow. SML reports the file name if the selected LoRA applies no native patches. [Native LoRA loaders](https://docs.comfy.org/built-in-nodes/LoraLoader)
+
+Open workflows saved with older model-specific nodes in ComfyUI and save them again. Their graph nodes migrate to **SML Power LoRA (Model Only)** with the same connections and stack settings. For older API payloads sent directly to ComfyUI, regenerate the payload from the updated workflow or set the old node's `class_type` to `SMLPowerLoRA`.
 
 ## Library, prompts, and galleries
 

@@ -2,7 +2,7 @@
 
 Bibliothèque locale et nodes de pile LoRA pour ComfyUI. Organisez des adaptateurs pour tous vos modèles de base, réglez leurs forces dans le workflow et conservez leurs prompts et images de référence sur la fiche `ⓘ`.
 
-[English documentation](README.md)
+**[Télécharger le dernier ZIP](https://github.com/marcmalade/SeventhMoon-LoRA-Studio/releases/latest/download/SeventhMoon-LoRA-Studio.zip)** · [Dernière version et nouveautés](https://github.com/marcmalade/SeventhMoon-LoRA-Studio/releases/latest) · [English documentation](README.md)
 
 ## Installation
 
@@ -13,11 +13,13 @@ git clone https://github.com/marcmalade/SeventhMoon-LoRA-Studio.git custom_nodes
 python -m pip install -r custom_nodes/SeventhMoon-LoRA-Studio/requirements.txt
 ```
 
-- **ZIP**. Télécharger le code courant, extraire l’archive et déplacer le dossier `SeventhMoon-LoRA-Studio-main` dans `ComfyUI/custom_nodes/`. Le renommer `SeventhMoon-LoRA-Studio`. Le fichier `__init__.py` doit se trouver à la racine du dossier. [Télécharger le code courant](https://github.com/marcmalade/SeventhMoon-LoRA-Studio/archive/refs/heads/main.zip)
+- **ZIP**. Télécharger la dernière version ci-dessus et extraire le dossier `SeventhMoon-LoRA-Studio` dans `ComfyUI/custom_nodes/`. Vérifier que `__init__.py` est à la racine du dossier du node, puis exécuter la commande `pip install` ci-dessus avec le Python de ComfyUI (3.11 ou plus récent).
 - **Windows Portable**. Depuis la racine `ComfyUI_windows_portable`, après la copie ou le clonage dans `ComfyUI/custom_nodes/`, exécuter `python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\SeventhMoon-LoRA-Studio\requirements.txt`.
 - **ComfyUI Manager**. Si l’installation par URL Git est disponible, utiliser l’adresse du dépôt, puis redémarrer ComfyUI. [Guide officiel d’installation](https://docs.comfy.org/installation/install_custom_node)
 
 Redémarrer ComfyUI. `requirements.txt` contient **Pillow** et **aiohttp**. Le catalogue, les fiches privées, les prompts et les nodes sont utilisables sans compte ni clé API. L’exécution du workflow utilise le moteur ComfyUI et les poids choisis par l’utilisateur.
+
+Pour mettre à jour une installation Git, lancer `git pull --ff-only` dans le dossier du node. Pour une installation ZIP, remplacer ce dossier par celui du dernier ZIP. Réinstaller les dépendances et redémarrer ComfyUI. La bibliothèque est stockée dans le dossier utilisateur de ComfyUI.
 
 ## Brancher le node dans un workflow
 
@@ -46,7 +48,9 @@ Dans le menu du graphe, chercher **SML Power LoRA** ou ouvrir la catégorie **Se
 
 ## Compatibilité
 
-Les deux variantes utilisent le chargement LoRA natif de ComfyUI. Choisir un LoRA compatible avec le modèle ou l’encodeur relié. Pour un format ou un adaptateur qui exige un chargeur dédié, utiliser ce chargeur dans le workflow. Si aucun poids ne correspond aux entrées actives, SML indique le nom du fichier. Les workflows sauvegardés avec les anciens nodes SML gardent leurs connexions et réglages. [Chargeurs LoRA natifs](https://docs.comfy.org/built-in-nodes/LoraLoader)
+Les deux variantes utilisent le chargement LoRA natif de ComfyUI. Choisir un LoRA compatible avec le modèle ou l’encodeur relié. Pour un format ou un adaptateur qui exige un chargeur dédié, utiliser ce chargeur dans le workflow. Si aucun poids ne correspond aux entrées actives, SML indique le nom du fichier. [Chargeurs LoRA natifs](https://docs.comfy.org/built-in-nodes/LoraLoader)
+
+Ouvrir dans ComfyUI les workflows enregistrés avec les anciens nodes propres à un modèle, puis les réenregistrer. Leurs nodes sont convertis en **SML Power LoRA (Model Only)** en gardant leurs connexions et les réglages de leur pile. Pour les anciens payloads API envoyés directement à ComfyUI, réexporter le workflow mis à jour ou remplacer le `class_type` de l’ancien node par `SMLPowerLoRA`.
 
 Le widget s’appuie sur `addDOMWidget` et l’entrée de workflow reste un `STRING`. Sur un frontend où le widget DOM est indisponible, le champ JSON natif reste visible et les fiches sont accessibles depuis la bibliothèque. [Extensions JavaScript ComfyUI](https://docs.comfy.org/custom-nodes/js/javascript_overview) · [Barre latérale ComfyUI](https://docs.comfy.org/custom-nodes/js/javascript_sidebar_tabs)
 

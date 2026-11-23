@@ -3,8 +3,22 @@ import { library } from "./library.js";
 import { addToActiveNode, installWidget } from "./node.js";
 import { button, el, modal } from "./ui.js";
 
+function migrateModelOnlyNodes(graph) {
+  const modelOnly = "SMLPowerLoRA";
+  for (const node of graph?.nodes ?? []) {
+    const type = node.type;
+    if (typeof type !== "string" || !type.startsWith(modelOnly) || type === modelOnly ||
+        type === "SMLPowerLoRAWithCLIP" || node.inputs?.[0]?.type !== "MODEL" ||
+        node.outputs?.length !== 2 || node.outputs[0].type !== "MODEL" || node.outputs[1].type !== "STRING") continue;
+    node.type = modelOnly;
+    if (node.properties?.["Node name for S&R"] === type) node.properties["Node name for S&R"] = modelOnly;
+  }
+  for (const subgraph of graph?.definitions?.subgraphs ?? []) migrateModelOnlyNodes(subgraph);
+}
+
 app.registerExtension({
   name: "SeventhMoon.LoRAStudio",
+  beforeConfigureGraph(graph) { migrateModelOnlyNodes(graph); },
   setup() {
     document.head.append(el("link", { rel: "stylesheet", href: new URL("./studio.css", import.meta.url).href }));
     const active = (card) => addToActiveNode(app, card);
