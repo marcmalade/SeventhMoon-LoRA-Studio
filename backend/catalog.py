@@ -19,6 +19,8 @@ TEXT_FIELDS = PROMPT_FIELDS | {
 }
 FIELDS = TEXT_FIELDS | {"type", "origin", "triggers", "strength", "tags", "favorite"}
 ID = re.compile(r"[a-f0-9]{32}\Z")
+GALLERY_LIMIT = 15
+GALLERY_ORDER = "(id=?) DESC, (source='local') DESC, (generation<>'{}' OR caption<>'') DESC, position,id"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS loras (
     id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL, present INTEGER NOT NULL DEFAULT 0,
@@ -48,12 +50,12 @@ def dump(value):
 
 def file_name(value):
     if not isinstance(value, str) or not value or len(value) > 1024:
-        raise ValueError("Nom de fichier LoRA invalide.")
+        raise ValueError("Invalid LoRA filename.")
     name = value.replace("\\", "/")
     if any(not part or part.rstrip(" .") != part for part in name.split("/")) or any(
         ord(char) < 32 or char in ':<>|?*"' for char in name
     ):
-        raise ValueError("Chemin relatif LoRA requis.")
+        raise ValueError("A relative LoRA path is required.")
     return name
 
 
@@ -77,7 +79,7 @@ def signature(stat):
 
 def valid_fields(data):
     if not isinstance(data, dict) or data.keys() - FIELDS:
-        raise ValueError("Champs de fiche invalides.")
+        raise ValueError("Invalid card fields.")
     for key, value in data.items():
         if value is None:
             continue
@@ -97,7 +99,7 @@ def valid_fields(data):
         elif key == "strength":
             valid = type(value) in (float, int) and -100 <= value <= 100
         if not valid:
-            raise ValueError(f"Valeur de fiche invalide pour {key}.")
+            raise ValueError(f"Invalid card value for {key}.")
     return data
 
 
@@ -105,22 +107,22 @@ def parse_stack(raw):
     try:
         data = json.loads(raw) if isinstance(raw, str) else raw
     except (ValueError, RecursionError) as error:
-        raise ValueError("Pile LoRA JSON invalide.") from error
+        raise ValueError("Invalid LoRA stack JSON.") from error
     if not isinstance(data, dict) or data.get("version", 1) != 1:
-        raise ValueError("Version de la pile LoRA inconnue.")
+        raise ValueError("Unsupported stack version.")
     enabled, rows = data.get("enabled", True), data.get("rows", [])
     if type(enabled) is not bool or not isinstance(rows, list):
-        raise ValueError("Pile LoRA invalide.")
+        raise ValueError("Invalid LoRA stack.")
     result = []
     for row in rows:
         if not isinstance(row, dict):
-            raise ValueError("Ligne LoRA invalide.")
+            raise ValueError("Invalid LoRA entry.")
         key = row.get("id")
         if key is not None and (not isinstance(key, str) or not ID.fullmatch(key)):
-            raise ValueError("Identifiant de fiche invalide.")
+            raise ValueError("Invalid card ID.")
         on, strength = row.get("enabled", True), row.get("strength", 1)
         if type(on) is not bool or type(strength) not in (int, float) or not -100 <= strength <= 100:
-            raise ValueError("Activation ou force LoRA invalide (−100 à 100).")
+            raise ValueError("Invalid activation or LoRA strength (−100 to 100).")
         triggers = row.get("triggers", [])
         valid_fields({"triggers": triggers})
         item = {"id": key, "file": file_name(row.get("file")), "enabled": on,
@@ -128,22 +130,22 @@ def parse_stack(raw):
         if "strength_clip" in row:
             clip_strength = row["strength_clip"]
             if type(clip_strength) not in (int, float) or not -100 <= clip_strength <= 100:
-                raise ValueError("Force de l’encodeur de texte invalide (−100 à 100).")
+                raise ValueError("Invalid text encoder strength (−100 to 100).")
             item["strength_clip"] = clip_strength
         category = row.get("category")
         if category is not None:
             if not isinstance(category, str) or len(category) > 120:
-                raise ValueError("Nom de catégorie invalide dans la pile.")
+                raise ValueError("Invalid stack category name.")
             item["category"] = category
         result.append(item)
     stack = {"version": 1, "enabled": enabled, "rows": result}
     if "layout" in data:
         layout = data["layout"]
         if not isinstance(layout, dict) or type(layout.get("grouped")) is not bool:
-            raise ValueError("Disposition de la pile invalide.")
+            raise ValueError("Invalid stack layout.")
         collapsed = layout.get("collapsed", [])
         if not isinstance(collapsed, list) or any(not isinstance(name, str) or len(name) > 120 for name in collapsed):
-            raise ValueError("Liste des catégories repliées invalide.")
+            raise ValueError("Invalid collapsed categories.")
         stack["layout"] = {"grouped": layout["grouped"], "collapsed": list(dict.fromkeys(collapsed))}
     return stack
 
@@ -181,7 +183,10 @@ class Catalog:
                                 conn.execute("ALTER TABLE media ADD COLUMN remote_generation TEXT NOT NULL DEFAULT '{}'")
                                 conn.execute("PRAGMA user_version=3")
                             elif version != 3:
-                                raise ValueError("Version de catalogue non prise en charge.")
+                                raise ValueError("Unsupported catalog version.")
+                            conn.execute("""CREATE TABLE IF NOT EXISTS civitai_checks (
+                                lora_id TEXT PRIMARY KEY REFERENCES loras(id) ON DELETE CASCADE,
+                                fingerprint TEXT NOT NULL, checked_at REAL NOT NULL)""")
                     self._ready = True
         with self._open() as conn:
             with conn:
@@ -244,7 +249,7 @@ class Catalog:
     def row(conn, key):
         row = conn.execute("SELECT * FROM loras WHERE id=?", (key,)).fetchone()
         if row is None:
-            raise KeyError("Fiche LoRA introuvable.")
+            raise KeyError("LoRA card not found.")
         return row
 
     @staticmethod
@@ -259,7 +264,8 @@ class Catalog:
         merged.update(local)
         return {"id": row["id"], "file": row["path"], "present": bool(row["present"]),
                 "cover": row["cover"], "updated": row["updated"], "data": merged,
-                "user_overrides": local, "remote_metadata": remote}
+                "user_overrides": local, "remote_metadata": remote,
+                "unlinked": not remote.get("version_id") and local.get("origin") != "Privé"}
 
     def cards(self):
         self.scan()
@@ -278,7 +284,7 @@ class Catalog:
             card.pop("user_overrides")
             card.pop("remote_metadata")
             prompts = [card["data"].pop(key, "") for key in PROMPT_FIELDS]
-            card.update(tile=row["tile"], image_count=row["image_count"], has_prompt=any(prompts))
+            card.update(tile=row["tile"], image_count=min(GALLERY_LIMIT, row["image_count"]), has_prompt=any(prompts))
             cards.append(card)
         return cards
 
@@ -287,14 +293,31 @@ class Catalog:
             row = self.row(conn, key)
             count, local = conn.execute("""SELECT COUNT(*),SUM(source='local') FROM media
                 WHERE lora_id=? AND hidden=0""", (key,)).fetchone()
-        return self.card(row, local) | {"image_count": count}
+        return self.card(row, local) | {"image_count": min(GALLERY_LIMIT, count), "local_images": local or 0,
+                                        "archived_images": max(0, count - GALLERY_LIMIT)}
+
+    def unmatched_files(self):
+        self.scan()
+        with self.connection() as conn:
+            rows = conn.execute("""SELECT loras.id, loras.fingerprint, user_overrides, remote_metadata
+                FROM loras LEFT JOIN civitai_checks ON loras.id=civitai_checks.lora_id
+                AND loras.fingerprint=civitai_checks.fingerprint WHERE present=1
+                AND (checked_at IS NULL OR checked_at<?) ORDER BY loras.path""", (time.time() - 7 * 86400,))
+            return [(row["id"], row["fingerprint"]) for row in rows
+                    if json.loads(row["user_overrides"]).get("origin") != "Privé"
+                    and not json.loads(row["remote_metadata"]).get("version_id")]
+
+    def mark_civitai_checked(self, key, fingerprint):
+        with self.connection(write=True) as conn:
+            conn.execute("""INSERT OR REPLACE INTO civitai_checks
+                SELECT id,fingerprint,? FROM loras WHERE id=? AND fingerprint=?""", (time.time(), key, fingerprint))
 
     def get_by_path(self, name):
         self.scan()
         with self.connection() as conn:
             row = conn.execute("SELECT * FROM loras WHERE path=?", (file_name(name),)).fetchone()
             if row is None:
-                raise KeyError("Fichier LoRA introuvable dans le catalogue.")
+                raise KeyError("LoRA file not found in the catalog.")
             return self.card(row)
 
     def edit(self, key, data):
@@ -315,13 +338,13 @@ class Catalog:
         with self.connection(write=True) as conn:
             source = self.row(conn, key)
             if source["present"]:
-                raise ValueError("Seule une fiche dont le fichier est absent peut être reliée.")
+                raise ValueError("Only cards with missing files can be relinked.")
             row = conn.execute("SELECT * FROM loras WHERE path=? AND present=1", (name,)).fetchone()
             if row is None:
-                raise ValueError("Fichier de remplacement introuvable.")
+                raise ValueError("Replacement file not found.")
             references = conn.execute("SELECT 1 FROM media WHERE lora_id=?", (row["id"],)).fetchone()
             if references or json.loads(row["user_overrides"]) or json.loads(row["remote_metadata"]):
-                raise ValueError("Le fichier de remplacement possède déjà une fiche renseignée.")
+                raise ValueError("The replacement file already has card data.")
             conn.execute("DELETE FROM loras WHERE id=?", (row["id"],))
             conn.execute("""UPDATE loras SET path=?,present=1,identity=?,fingerprint=?,sha256=?,
                 suggested_type=?,updated=? WHERE id=?""", (name, row["identity"], row["fingerprint"],
@@ -341,7 +364,7 @@ class Catalog:
             row = self.row(conn, key)
         path = resolve(self.folders, row["path"])
         if path is None:
-            raise ValueError("Fichier LoRA absent.")
+            raise ValueError("LoRA file is missing.")
         _, fingerprint = signature(path.stat())
         if row["fingerprint"] == fingerprint and row["sha256"]:
             return row["sha256"]
@@ -351,7 +374,7 @@ class Catalog:
                 check_cancel()
                 digest.update(block)
         if signature(path.stat())[1] != fingerprint:
-            raise ValueError("Le fichier LoRA a changé pendant le calcul SHA256.")
+            raise ValueError("The LoRA file changed while calculating its SHA-256 hash.")
         result = digest.hexdigest()
         with self.connection(write=True) as conn:
             conn.execute("UPDATE loras SET sha256=? WHERE id=? AND fingerprint=?", (result, key, fingerprint))
@@ -364,7 +387,7 @@ class Catalog:
 
     def save_preset(self, name, stack):
         if not isinstance(name, str) or not name.strip() or len(name) > 120:
-            raise ValueError("Le nom du preset doit contenir de 1 à 120 caractères.")
+            raise ValueError("Preset names must contain 1 to 120 characters.")
         stack = parse_stack(stack)
         with self.connection(write=True) as conn:
             conn.execute("INSERT OR REPLACE INTO presets VALUES (?,?)", (name.strip(), dump(stack)))

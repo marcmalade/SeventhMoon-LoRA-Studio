@@ -4,6 +4,7 @@ import asyncio
 import logging
 import tempfile
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,7 +13,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 from . import backup
-from .civitai import Civitai, association
+from .civitai import Civitai, RemoteError, association
 from .media import IMAGE_CONTENT_TYPES, MAX_IMAGE, Media
 
 
@@ -20,7 +21,7 @@ from .media import IMAGE_CONTENT_TYPES, MAX_IMAGE, Media
 class Job:
     key: str
     state: str = "running"
-    message: str = "Démarrage…"
+    message: str = "Starting…"
     warnings: list = field(default_factory=list)
     cancelled: threading.Event = field(default_factory=threading.Event)
     task: asyncio.Task = None
@@ -39,6 +40,9 @@ def register(routes, catalog):
     jobs = {}
     active = {}
     network = asyncio.Semaphore(3)
+    automatic = {"running": False, "revision": 0, "checked": 0, "total": 0}
+    auto_task = None
+    retry_after = 0
 
     def route(method, path):
         def wrapper(handler):
@@ -47,9 +51,9 @@ def register(routes, catalog):
                     origin = request.headers.get("Origin")
                     if (request.headers.get("Sec-Fetch-Site") == "cross-site" or
                             (origin and urlsplit(origin).netloc.lower() != request.host.lower())):
-                        return web.json_response({"error": "Accès depuis une autre origine refusé."}, status=403)
+                        return web.json_response({"error": "Cross-origin request denied."}, status=403)
                     if method != "GET" and request.headers.get("X-SML-Studio") != "1":
-                        return web.json_response({"error": "En-tête X-SML-Studio requis."}, status=403)
+                        return web.json_response({"error": "X-SML-Studio header required."}, status=403)
                     response = await handler(request)
                     if isinstance(response, web.StreamResponse):
                         return response
@@ -60,7 +64,7 @@ def register(routes, catalog):
                     return web.json_response({"error": str(error)}, status=400)
                 except OSError:
                     logging.exception("Seventh Moon LoRA Studio")
-                    return web.json_response({"error": "Accès au stockage local impossible."}, status=500)
+                    return web.json_response({"error": "Could not access local storage."}, status=500)
             routes.route(method, "/sml-lora" + path)(handle)
             return handle
         return wrapper
@@ -104,7 +108,7 @@ def register(routes, catalog):
         async for block in request.content.iter_chunked(128 * 1024):
             content.extend(block)
             if len(content) > MAX_IMAGE:
-                raise ValueError("Chaque image doit contenir au plus 48 Mio.")
+                raise ValueError("Images must be 48 MiB or smaller.")
         mid = await asyncio.to_thread(media.add, request.match_info["key"], bytes(content), request.query.get("replace"))
         return {"id": mid}
 
@@ -150,6 +154,66 @@ def register(routes, catalog):
         await asyncio.to_thread(catalog.delete_preset, request.query.get("name"))
         return {"ok": True}
 
+    async def find_matches(first):
+        nonlocal retry_after
+        try:
+            candidates = await asyncio.to_thread(catalog.unmatched_files)
+            if first:
+                candidates.sort(key=lambda item: item[0] != first)
+            automatic["total"] = len(candidates)
+            for key, fingerprint in candidates:
+                if key in active:
+                    continue
+                active[key] = "auto"
+                try:
+                    card = await asyncio.to_thread(catalog.get, key)
+                    if not card["present"] or card["user_overrides"].get("origin") == "Privé":
+                        continue
+                    async with network:
+                        if await civitai.sync(Job(key), key, "auto", None, False):
+                            automatic["revision"] += 1
+                except RemoteError as error:
+                    if error.status == 404:
+                        await asyncio.to_thread(catalog.mark_civitai_checked, key, fingerprint)
+                    else:
+                        retry_after = time.monotonic() + 300
+                        break
+                except (OSError, KeyError, ValueError):
+                    # An index entry can disappear or change while a file is being read.
+                    continue
+                finally:
+                    active.pop(key, None)
+                    automatic["checked"] += 1
+                await asyncio.sleep(0.35)
+        except Exception:
+            retry_after = time.monotonic() + 300
+            logging.exception("Automatic Civitai lookup failed")
+        finally:
+            automatic["running"] = False
+
+    @route("POST", "/civitai/auto")
+    async def start_automatic(request):
+        nonlocal auto_task
+        data = await object_body(request)
+        if (auto_task is None or auto_task.done()) and time.monotonic() >= retry_after:
+            automatic.update(running=True, checked=0, total=0)
+            auto_task = asyncio.create_task(find_matches(data.get("first")))
+        return automatic.copy()
+
+    @route("DELETE", "/civitai/auto")
+    async def stop_automatic(request):
+        if auto_task and not auto_task.done():
+            auto_task.cancel()
+            try:
+                await auto_task
+            except asyncio.CancelledError:
+                automatic["running"] = False
+        return automatic.copy()
+
+    @route("GET", "/civitai/auto")
+    async def automatic_progress(request):
+        return automatic.copy()
+
     @route("POST", "/cards/{key}/civitai")
     async def start_job(request):
         key = request.match_info["key"]
@@ -157,10 +221,12 @@ def register(routes, catalog):
         data = await object_body(request)
         action = data.get("method")
         if action not in ("url", "hash", "refresh", "offline"):
-            raise ValueError("Action Civitai inconnue.")
+            raise ValueError("Unknown Civitai action.")
         if action == "url":
             association(data.get("value"))
         if key in active:
+            if active[key] == "auto":
+                raise ValueError("Automatic Civitai lookup is running for this LoRA. Try again shortly.")
             return {"job": active[key]}
         for previous, value in list(jobs.items()):
             if len(jobs) < 64:
@@ -182,14 +248,14 @@ def register(routes, catalog):
                 job.state = "partial" if job.warnings else "done"
             except asyncio.CancelledError:
                 job.state = "cancelled"
-                job.message = "Opération arrêtée. Les données reçues sont conservées."
+                job.message = "Sync cancelled. Previously saved data is retained."
             except ValueError as error:
                 job.state = "error"
                 job.message = str(error)
             except Exception:
                 logging.exception("Synchronisation Civitai")
                 job.state = "error"
-                job.message = "Erreur pendant l’opération Civitai."
+                job.message = "Civitai sync failed."
             finally:
                 if active.get(key) == job_id:
                     active.pop(key)
@@ -208,7 +274,7 @@ def register(routes, catalog):
             job.cancelled.set()
             job.task.cancel()
             job.state = "cancelled"
-            job.message = "Opération arrêtée. Les données reçues sont conservées."
+            job.message = "Sync cancelled. Previously saved data is retained."
             if active.get(job.key) == request.match_info["job"]:
                 active.pop(job.key)
         return job.info()
@@ -246,7 +312,7 @@ def register(routes, catalog):
                 async for chunk in request.content.iter_chunked(512 * 1024):
                     size += len(chunk)
                     if size > limit:
-                        raise ValueError("Sauvegarde trop volumineuse.")
+                        raise ValueError("Backup file is too large.")
                     await asyncio.to_thread(stream.write, chunk)
             return await asyncio.to_thread(backup.restore, catalog, media, path, zipped)
 
@@ -254,12 +320,12 @@ def register(routes, catalog):
 async def object_body(request):
     data = await request.json()
     if not isinstance(data, dict):
-        raise ValueError("Objet JSON requis.")
+        raise ValueError("A JSON object is required.")
     return data
 
 
 def fetch_job(jobs, request):
     job = jobs.get(request.match_info["job"])
     if job is None:
-        raise KeyError("Opération introuvable.")
+        raise KeyError("Job not found.")
     return job

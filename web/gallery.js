@@ -1,7 +1,7 @@
-import { autoSave, button, copy, el, imageUrl, modal, promptField, request } from "./ui.js";
+import { autoSave, button, copy, el, imageUrl, modal, request } from "./ui.js";
 
-const PAGE = 40;
-const TILE = 146;
+const PAGE = 15;
+const TILE = 84;
 
 export function gallery({ key, add, replace, status, onPromptsChange }) {
   const endpoint = `/cards/${key}/media`;
@@ -15,54 +15,39 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
   let scale = null;
   let pan = null;
   let version = 0;
-  let resizeTimeout;
 
   const stage = el("div", { className: "sml-stage" });
-  const viewport = el("div", { className: "sml-image-viewport", tabIndex: 0, "aria-label": "Image sélectionnée" });
-  const message = el("div", { className: "sml-image-empty", textContent: "Aucune image disponible." });
-  const previous = button("‹", () => step(-1), { className: "sml-arrow sml-prev", "aria-label": "Image précédente" });
-  const next = button("›", () => step(1), { className: "sml-arrow sml-next", "aria-label": "Image suivante" });
+  const viewport = el("div", { className: "sml-image-viewport", tabIndex: 0, "aria-label": "Selected image" });
+  const message = el("div", { className: "sml-image-empty", textContent: "No image available." });
+  const previous = button("‹", () => step(-1), { className: "sml-arrow sml-prev", "aria-label": "Previous image" });
+  const next = button("›", () => step(1), { className: "sml-arrow sml-next", "aria-label": "Next image" });
   stage.append(viewport, previous, next);
   const caption = el("span", { className: "sml-caption" });
   const counter = el("strong", { className: "sml-counter", "aria-live": "polite" });
   const source = el("span", { className: "sml-muted" });
-  const zoomLabel = el("span", { className: "sml-zoom-label", textContent: "Ajustée" });
-  const zoom = el("div", { className: "sml-actions" }, button("−", () => zoomBy(0.8), { "aria-label": "Zoom arrière" }),
-    button("100 %", () => setZoom(1)), button("+", () => zoomBy(1.25), { "aria-label": "Zoom avant" }),
-    button("Ajuster", () => setZoom(null)));
-  const full = button("Plein écran", () => toggleFull(), { className: "sml-primary" });
-  const download = button("Charger en HD", () => fetchHD(item, selection));
-  const generationDetails = button("Prompt et réglages", () => editGeneration());
-  const cover = button("Définir la couverture", () => modify("cover"));
-  const backward = button("←", () => modify("move", -1, index - 1), { "aria-label": "Reculer dans le ruban" });
-  const forward = button("→", () => modify("move", 1, index + 1), { "aria-label": "Avancer dans le ruban" });
-  const rename = button("Légende", async () => {
-    const id = item?.id;
-    const value = await promptField("Légende de l’image", "Texte", item?.caption || "");
-    if (value !== null && item?.id === id) await modify("caption", value);
+  const zoom = el("div", { className: "sml-actions" }, button("−", () => zoomBy(0.8), { "aria-label": "Zoom out" }),
+    button("+", () => zoomBy(1.25), { "aria-label": "Zoom in" }),
+    button("Fit", () => setZoom(null)));
+  const full = button("Expand image", () => toggleFull());
+  const download = button("Load full size", () => fetchHD(item, selection));
+  const generationDetails = button("Prompt & settings", () => editGeneration());
+  const cover = button("Set as cover", () => modify("cover"));
+  const backward = button("←", () => modify("move", -1, index - 1), { "aria-label": "Move image left" });
+  const forward = button("→", () => modify("move", 1, index + 1), { "aria-label": "Move image right" });
+  const rename = button("Caption", editCaption);
+  const replacement = button("Replace", () => replace(item.id));
+  const remove = button("Remove", () => {
+    if (item && window.confirm("Remove this image from the gallery?")) modify("remove");
   });
-  const replacement = button("Remplacer", () => replace(item.id));
-  const remove = button("Retirer", () => {
-    if (item && window.confirm("Retirer cette image de la galerie ?")) modify("remove");
-  });
-  const mediaActions = el("div", { className: "sml-actions sml-media-actions" }, generationDetails,
-    cover, backward, forward, rename, replacement, remove);
-  const addButton = button("Ajouter des images", add);
-  const aside = el("aside", { className: "sml-picture-info" }, el("strong", { textContent: "Image sélectionnée" }),
-    counter, source, caption, zoomLabel, zoom, el("div", { className: "sml-actions" }, full, download, addButton), mediaActions);
-  const strip = el("div", { className: "sml-strip", tabIndex: 0, "aria-label": "Miniatures défilantes" });
+  const mediaActions = el("details", { className: "sml-popover" }, el("summary", { textContent: "Image actions" }),
+    el("div", { className: "sml-tool-panel" }, cover, backward, forward, rename, replacement, remove));
+  const addButton = button("Add images", add);
+  const aside = el("div", { className: "sml-picture-info" }, counter, source, zoom, full, download,
+    generationDetails, addButton, mediaActions, caption);
+  const strip = el("div", { className: "sml-strip", tabIndex: 0, "aria-label": "Image thumbnails" });
   const rail = el("div", { className: "sml-rail" });
   strip.append(rail);
-  const root = el("section", { className: "sml-gallery", "aria-label": "Galerie d’images" },
-    el("div", { className: "sml-gallery-top" }, el("h3", { textContent: "Galerie d’images" }),
-      el("span", { className: "sml-muted", textContent: "← → Naviguer · + / − Zoom" })),
-    el("div", { className: "sml-gallery-main" }, stage, aside),
-    el("div", { className: "sml-strip-label", textContent: "Miniatures" }), strip);
-  const resize = new ResizeObserver(() => {
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(renderStrip, 35);
-  });
-  resize.observe(strip);
+  const root = el("section", { className: "sml-gallery", "aria-label": "Image gallery" }, aside, stage, strip);
 
   function page(at) {
     const start = Math.floor(at / PAGE) * PAGE;
@@ -83,17 +68,10 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
 
   async function renderStrip() {
     const revision = generation;
-    const start = Math.max(0, Math.floor(strip.scrollLeft / TILE) - 2);
-    const end = Math.min(total, Math.ceil((strip.scrollLeft + strip.clientWidth) / TILE) + 2);
     for (const [position, node] of thumbs) {
-      if (position < start || position >= end) {
-        node.remove();
-        thumbs.delete(position);
-      } else {
-        node.setAttribute("aria-pressed", String(position === index));
-      }
+      node.setAttribute("aria-pressed", String(position === index));
     }
-    for (let position = start; position < end; position++) {
+    for (let position = 0; position < total; position++) {
       if (thumbs.has(position)) continue;
       const tile = button("", () => choose(position, true), {
         className: "sml-thumb", title: `Image ${position + 1}`, "aria-label": `Image ${position + 1}`,
@@ -106,31 +84,35 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
         if (revision !== generation || thumbs.get(position) !== tile || !entry) return;
         if (entry.preview) {
           const tiny = el("img", { src: imageUrl(entry, "thumbnail"), loading: "lazy", decoding: "async", alt: "" });
-          tiny.onerror = () => tiny.replaceWith(document.createTextNode("Indisponible"));
+          tiny.onerror = () => tiny.replaceWith(document.createTextNode("Unavailable"));
           tile.append(tiny);
-        } else tile.append(entry.source === "civitai" ? "Civitai" : "Image indisponible");
+        } else tile.append(entry.source === "civitai" ? "Civitai" : "Image unavailable");
         tile.append(el("span", { className: "sml-thumb-index", textContent: `${position + 1}` }));
       }).catch((error) => { if (revision === generation) status(error.message); });
     }
   }
 
   function renderMain() {
-    counter.textContent = total ? `${index + 1} / ${total}` : "0 image";
+    counter.textContent = total ? `${index + 1} / ${total}` : "No images";
     previous.disabled = index <= 0;
     next.disabled = index + 1 >= total;
     backward.disabled = previous.disabled;
     forward.disabled = next.disabled;
-    source.textContent = item ? (item.source === "local" ? "Import personnel" :
-      `Civitai · ${item.scope === "extended" ? "Galerie étendue" : "Version"}${item.attribution ? ` · ${item.attribution}` : ""}`) : "";
+    source.textContent = item ? (item.source === "local" ? "Local upload" :
+      `Civitai · ${item.scope === "extended" ? "Extended gallery" : "Version"}${item.attribution ? ` · ${item.attribution}` : ""}`) : "";
     caption.textContent = item?.caption || "";
+    caption.hidden = !item?.caption;
     mediaActions.hidden = !item;
+    generationDetails.hidden = !item;
+    zoom.hidden = full.hidden = !item?.cached && !item?.preview;
+    strip.hidden = total < 2;
     generationDetails.classList.toggle("sml-has-generation", Boolean(item?.has_generation));
-    generationDetails.title = item?.has_generation ? "Afficher les données de génération enregistrées" : "Ajouter des données de génération";
+    generationDetails.title = item?.has_generation ? "View saved generation settings" : "Add generation settings";
     replacement.hidden = item?.source !== "local";
     download.hidden = !item || item.cached || item.source !== "civitai";
     viewport.replaceChildren();
     if (!item?.cached && !item?.preview) {
-      message.textContent = total ? "Image indisponible localement." : "Déposez vos images ici ou utilisez « Ajouter des images ».";
+      message.textContent = total ? "Image unavailable locally." : "Drop images here or choose Add images.";
       viewport.append(message);
     } else {
       const image = el("img", { alt: item.caption || `Image ${index + 1}`, draggable: false,
@@ -138,7 +120,7 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
       image.onload = () => setZoom(scale);
       image.onerror = () => {
         if (!image.isConnected) return;
-        message.textContent = "Impossible d’afficher cette image.";
+        message.textContent = "Unable to display this image.";
         viewport.replaceChildren(message);
       };
       viewport.append(image);
@@ -148,7 +130,7 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
 
   async function fetchHD(entry, token) {
     if (!entry || entry.cached || entry.source !== "civitai") return;
-    status("Chargement de l’image Civitai en haute définition…");
+    status("Loading the full-size image…");
     download.disabled = true;
     try {
       await request(`${endpoint}/${entry.id}/download`, "POST");
@@ -179,7 +161,6 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
       for (const nearby of [index - 1, index + 1]) {
         if (nearby >= 0 && nearby < total) at(nearby).catch(() => {});
       }
-      if (explicit) fetchHD(item, token);
     } catch (error) { status(error.message); }
   }
 
@@ -206,7 +187,7 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
     try {
       await request(`${endpoint}/${item.id}`, "PATCH", { action, value });
       await refresh(position);
-      status(action === "cover" ? "Couverture mise à jour." : "Galerie mise à jour.");
+      status(action === "cover" ? "Cover updated." : "Gallery updated.");
       root.dispatchEvent(new Event("gallerychange"));
     } catch (error) { status(error.message); }
   }
@@ -214,9 +195,9 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
   async function editGeneration() {
     if (!item) return;
     const id = item.id;
-    const { dialog } = modal(`Prompt et réglages · Image ${index + 1}`, "sml-editor");
+    const { dialog } = modal(`Prompt & settings · Image ${index + 1}`, "sml-editor");
     const form = el("form", { className: "sml-form" });
-    const message = el("output", { role: "status", textContent: "Chargement…" });
+    const message = el("output", { role: "status", textContent: "Loading…" });
     form.append(message);
     dialog.append(form);
     try {
@@ -225,9 +206,9 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
       const inputs = new Map();
       const actionStatus = el("output", { className: "sml-status", role: "status" });
       const details = [
-        ["prompt", "Prompt", "Prompt de l’image", "default_prompt"],
-        ["negative_prompt", "Prompt négatif", "Prompt négatif, si utilisé", "default_negative_prompt"],
-        ["settings", "Réglages", "Par exemple seed, dimensions, sampler, steps, CFG et force LoRA. Le texte et le JSON sont acceptés."],
+        ["prompt", "Prompt", "Image prompt", "default_prompt"],
+        ["negative_prompt", "Negative prompt", "Negative prompt, if used", "default_negative_prompt"],
+        ["settings", "Settings", "Seed, size, sampler, steps, CFG, or LoRA strength. Text and JSON are supported."],
       ];
       for (const [field, label, placeholder, destination] of details) {
         const input = el("textarea", { value: saved[field] ?? "", placeholder, rows: field === "negative_prompt" ? 3 : 5,
@@ -235,20 +216,20 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
         inputs.set(field, input);
         const controls = el("div", { className: "sml-actions" });
         if (destination) {
-          const copyPrompt = button(field === "prompt" ? "Copier le prompt" : "Copier le négatif", async () => {
-            try { await copy(input.value); actionStatus.textContent = "Copié."; }
+          const copyPrompt = button(field === "prompt" ? "Copy prompt" : "Copy negative prompt", async () => {
+            try { await copy(input.value); actionStatus.textContent = "Copied."; }
             catch (error) { actionStatus.textContent = error.message; }
           });
-          const usePrompt = button("Définir comme défaut", async () => {
+          const usePrompt = button("Use as default", async () => {
             usePrompt.disabled = true;
             try {
-              if (input.value.length > 65536) throw new Error("Le prompt par défaut accepte jusqu’à 65 536 caractères.");
+              if (input.value.length > 65536) throw new Error("Default prompts can contain up to 65,536 characters.");
               const card = await request(`/cards/${key}`, "PATCH", { [destination]: input.value });
               onPromptsChange?.(card);
-              actionStatus.textContent = `${label} enregistré par défaut dans la fiche.`;
+              actionStatus.textContent = `${label} saved as the LoRA default.`;
             } catch (error) { actionStatus.textContent = error.message; }
             finally { usePrompt.disabled = !input.value.trim(); }
-          }, { "aria-label": field === "prompt" ? "Définir le prompt par défaut" : "Définir le prompt négatif par défaut" });
+          }, { "aria-label": field === "prompt" ? "Set the default prompt" : "Set the default negative prompt" });
           const updateButtons = () => { copyPrompt.disabled = usePrompt.disabled = !input.value.trim(); };
           input.addEventListener("input", updateButtons);
           updateButtons();
@@ -268,10 +249,27 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
     } catch (error) { message.textContent = error.message; }
   }
 
+  function editCaption() {
+    if (!item) return;
+    const { id } = item;
+    const { dialog } = modal("Image caption", "sml-small");
+    const input = el("textarea", { value: item.caption, rows: 3, maxLength: 16384 });
+    const form = el("form", { className: "sml-form" }, el("label", {}, "Caption", input));
+    autoSave(dialog, form, new Map([["caption", input]]), async ({ caption: value }) => {
+      await request(`${endpoint}/${id}`, "PATCH", { action: "caption", value });
+      if (item?.id === id) {
+        item.caption = value;
+        caption.textContent = value;
+        caption.hidden = !value;
+      }
+    });
+    dialog.append(form);
+    input.focus();
+  }
+
   function setZoom(value) {
     const image = viewport.querySelector("img");
     scale = value;
-    zoomLabel.textContent = value ? `${Math.round(value * 100)} %` : "Ajustée";
     viewport.classList.toggle("sml-zoomed", value !== null);
     if (!image) return;
     image.style.width = value ? `${image.naturalWidth * value}px` : "";
@@ -281,14 +279,14 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
   function zoomBy(factor) {
     const image = viewport.querySelector("img");
     if (!image?.naturalWidth) return;
-    const fitted = image.clientWidth / image.naturalWidth;
+    const fitted = Math.min((viewport.clientWidth - 60) / image.naturalWidth, viewport.clientHeight / image.naturalHeight);
     setZoom(Math.min(4, Math.max(0.05, (scale ?? fitted) * factor)));
   }
 
   function toggleFull() {
     const dialog = root.closest("dialog");
     const expanded = dialog.classList.toggle("sml-expanded");
-    full.textContent = expanded ? "Quitter le plein écran" : "Plein écran";
+    full.textContent = expanded ? "Exit expanded view" : "Expand image";
     viewport.focus({ preventScroll: true });
   }
 
@@ -307,7 +305,6 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
     if (pan) viewport.scrollTo(pan[0] - event.clientX, pan[1] - event.clientY);
   };
   viewport.onlostpointercapture = () => { pan = null; };
-  strip.onscroll = renderStrip;
   strip.addEventListener("wheel", (event) => {
     if (Math.abs(event.deltaX) >= Math.abs(event.deltaY) || strip.scrollWidth <= strip.clientWidth) return;
     event.preventDefault();
@@ -325,5 +322,5 @@ export function gallery({ key, add, replace, status, onPromptsChange }) {
     }
   }
 
-  return { root, refresh, keyboard, toggleFull, dispose: () => resize.disconnect() };
+  return { root, refresh, keyboard, toggleFull, dispose: () => { generation++; selection++; } };
 }

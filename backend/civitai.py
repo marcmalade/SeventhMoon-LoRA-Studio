@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import aiohttp
 
-from .catalog import dump, now
+from .catalog import GALLERY_LIMIT, dump, now
 from .media import MAX_IMAGE
 
 
@@ -24,7 +24,9 @@ IMAGE_KEY = re.compile(r"[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/")
 
 
 class RemoteError(ValueError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class PlainText(HTMLParser):
@@ -51,7 +53,7 @@ def number(value):
 
 def allowed(url, hosts):
     if not isinstance(url, str) or len(url) > 8192 or any(ord(char) < 32 or char == "\\" for char in url):
-        raise RemoteError("Adresse Civitai invalide.")
+        raise RemoteError("Invalid Civitai URL.")
     try:
         parts = urlsplit(url)
         if (parts.scheme == "https" and parts.hostname in hosts and parts.username is None and
@@ -59,12 +61,12 @@ def allowed(url, hosts):
             return parts
     except ValueError:
         pass
-    raise RemoteError("Adresse hors des domaines Civitai pris en charge.")
+    raise RemoteError("URL outside supported Civitai domains.")
 
 
 def association(value):
     if not isinstance(value, str):
-        raise ValueError("Saisissez une URL Civitai ou un ID de version.")
+        raise ValueError("Enter a Civitai URL or version ID.")
     value = value.strip()
     if number(value):
         return "model-versions/" + value
@@ -79,7 +81,7 @@ def association(value):
     match = re.fullmatch(r"/api/v1/model-versions/([1-9][0-9]{0,14})/?", parts.path)
     if match:
         return f"model-versions/{match[1]}"
-    raise RemoteError("URL Civitai de modèle ou de version attendue.")
+    raise RemoteError("Enter a Civitai model or version URL.")
 
 
 def image_key(url):
@@ -134,7 +136,7 @@ class Civitai:
                 path = unquote(parts.path)
                 if (not parts.path.startswith("/api/v1/") or "\\" in path or
                         any(segment in (".", "..") for segment in path.split("/"))):
-                    raise RemoteError("Page suivante Civitai invalide.")
+                    raise RemoteError("Invalid Civitai API page.")
             headers = {"Authorization": f"Bearer {token}"} if token and parts.hostname == API_HOST else {}
             for retry in range(3):
                 try:
@@ -147,32 +149,32 @@ class Civitai:
                             raw = response.headers.get("Retry-After", "")
                             delay = int(raw) if raw.isascii() and raw.isdigit() and len(raw) < 6 else 2 ** retry
                             if delay > 60:
-                                raise RemoteError(f"Civitai demande de réessayer dans {delay} secondes.")
+                                raise RemoteError(f"Civitai asked to retry in {delay} seconds.", status)
                             await asyncio.sleep(max(1, delay))
                             continue
                         if status != 200:
-                            message = {401: "token requis ou invalide", 403: "accès refusé",
-                                       404: "ressource introuvable", 429: "limite de requêtes atteinte"}
-                            raise RemoteError(f"Civitai ({status}) · {message.get(status, 'service indisponible')}.")
+                            message = {401: "token required or invalid", 403: "access denied",
+                                       404: "not found", 429: "rate limit reached"}
+                            raise RemoteError(f"Civitai ({status}) · {message.get(status, 'service unavailable')}.", status)
                         content = bytearray()
                         async for chunk in response.content.iter_chunked(128 * 1024):
                             content.extend(chunk)
                             if len(content) > maximum:
-                                raise RemoteError("La réponse Civitai dépasse la taille autorisée.")
+                                raise RemoteError("The Civitai response exceeds the size limit.")
                         return bytes(content)
                 except (aiohttp.ClientError, TimeoutError) as error:
                     if retry == 2:
-                        raise RemoteError("Civitai est inaccessible ou a dépassé le délai de réponse.") from error
+                        raise RemoteError("Civitai is unavailable or the request timed out.") from error
                     await asyncio.sleep(2 ** retry)
-        raise RemoteError("Trop de redirections Civitai.")
+        raise RemoteError("Too many Civitai redirects.")
 
     async def json(self, session, url):
         try:
             data = json.loads(await self.request(session, url, api=True, maximum=16 * 1024 * 1024))
         except (UnicodeError, json.JSONDecodeError) as error:
-            raise RemoteError("Réponse JSON Civitai invalide.") from error
+            raise RemoteError("Invalid JSON response from Civitai.") from error
         if not isinstance(data, dict) or not data:
-            raise RemoteError("Réponse Civitai vide.")
+            raise RemoteError("Empty response from Civitai.")
         return data
 
     def record(self, key, remote, entries, author, scope):
@@ -182,6 +184,7 @@ class Civitai:
                 conn.execute("UPDATE loras SET remote_metadata=?,updated=? WHERE id=?", (dump(remote), now(), key))
             rows = conn.execute("SELECT id,remote_id,url,scope,remote_generation FROM media WHERE lora_id=? AND source='civitai'",
                                 (key,)).fetchall()
+            room = GALLERY_LIMIT - conn.execute("SELECT COUNT(*) FROM media WHERE lora_id=? AND hidden=0", (key,)).fetchone()[0]
             by_id = {row["remote_id"]: dict(row) for row in rows if row["remote_id"]}
             by_url = {}
             for row in rows:
@@ -209,6 +212,8 @@ class Civitai:
                         remote_generation=? WHERE id=?""", (remote_id, actual_scope, attribution, url, saved, existing["id"]))
                     existing.update(url=url, scope=actual_scope, remote_generation=saved)
                 else:
+                    if len(added) >= room:
+                        continue
                     media_id = uuid4().hex
                     self.media.insert(conn, key, media_id, "civitai", url=url, remote_id=remote_id,
                                       attribution=attribution, scope=scope, remote_generation=generation)
@@ -242,10 +247,15 @@ class Civitai:
     async def sync(self, job, key, method, value, extended):
         card = await asyncio.to_thread(self.catalog.get, key)
         prior = card["remote_metadata"]
-        if method == "hash":
-            job.message = "Calcul SHA256 en cours…"
-            await asyncio.to_thread(self.catalog.scan, True)
+        if method in ("hash", "auto"):
+            job.message = "Calculating SHA-256…"
+            if method == "hash":
+                await asyncio.to_thread(self.catalog.scan, True)
             sha = await asyncio.to_thread(self.catalog.hash, key, job.check)
+            if method == "auto":
+                current = await asyncio.to_thread(self.catalog.get, key)
+                if current["user_overrides"].get("origin") == "Privé" or current["remote_metadata"].get("version_id"):
+                    return False
             endpoint = "model-versions/by-hash/" + sha
         elif method == "refresh" and number(prior.get("version_id")):
             endpoint = "model-versions/" + number(prior["version_id"])
@@ -253,9 +263,9 @@ class Civitai:
         elif method == "url":
             endpoint = association(value)
         else:
-            raise RemoteError("Associez d’abord une version Civitai.")
+            raise RemoteError("Link a Civitai version first.")
         job.check()
-        job.message = "Lecture de la version Civitai…"
+        job.message = "Fetching the Civitai version…"
         async with self.session() as session:
             version = await self.json(session, BASE + endpoint)
             model = {}
@@ -264,12 +274,12 @@ class Civitai:
                 versions = model.get("modelVersions") or []
                 first = versions[0] if versions else {}
                 if not number(first.get("id")):
-                    raise RemoteError("Aucune version Civitai accessible pour ce modèle.")
+                    raise RemoteError("No accessible Civitai version for this model.")
                 version = await self.json(session, BASE + "model-versions/" + number(first["id"]))
             version_id = number(version.get("id"))
             model_id = number(version.get("modelId")) or number(model.get("id"))
             if not version_id:
-                raise RemoteError("Identifiant de version absent de la réponse Civitai.")
+                raise RemoteError("The Civitai response has no version ID.")
             model_summary = version.get("model") or {}
             if model_id and not model:
                 try:
@@ -298,13 +308,14 @@ class Civitai:
             if extended and model_id:
                 scopes.append(("extended", "modelId", model_id))
             for scope, field, identifier in scopes:
-                query = {field: identifier, "limit": 50, "type": "image", "nsfw": "true", "withMeta": "true"}
+                query = {field: identifier, "limit": GALLERY_LIMIT, "type": "image", "nsfw": "true", "withMeta": "true"}
                 url = BASE + "images?" + urlencode(query)
                 seen = set()
-                while url and url not in seen:
+                while (url and url not in seen and len(seen) < 3
+                       and await asyncio.to_thread(self.media.room, key)):
                     job.check()
                     seen.add(url)
-                    job.message = f"Galerie Civitai · {scope} · page {len(seen)} · {count} ajout(s)"
+                    job.message = f"Civitai gallery · {count} images added"
                     try:
                         result = await self.json(session, url)
                     except RemoteError as error:
@@ -319,32 +330,32 @@ class Civitai:
                     else:
                         url = None
                 if url and url in seen and not job.warnings:
-                    job.warnings.append("Pagination interrompue : Civitai a répété une page.")
+                    job.warnings.append("Civitai returned a duplicate page.")
             await self.cache_all(session, job, key, thumbnail_only=True)
-            job.message = f"Synchronisation terminée · {count} nouvelle(s) image(s)"
+            job.message = f"Sync complete · {count} new images"
+            return True
 
     def pending(self, key, variant):
         with self.catalog.connection() as conn:
-            self.catalog.row(conn, key)
-            rows = conn.execute("""SELECT id,url,original,thumbnail FROM media
-                WHERE lora_id=? AND source='civitai' AND hidden=0 ORDER BY position""",
-                                (key,)).fetchall()
-        return [dict(row) for row in rows if not row[variant] or not self.media.path(row[variant]).is_file()]
+            cover = self.catalog.row(conn, key)["cover"]
+            rows = self.media.visible(conn, key, cover)
+        return [dict(row) for row in rows if row["source"] == "civitai"
+                and (not row[variant] or not self.media.path(row[variant]).is_file())]
 
     async def cache_all(self, session, job, key, thumbnail_only):
         rows = await asyncio.to_thread(self.pending, key, "thumbnail" if thumbnail_only else "original")
         failures = 0
         for index, row in enumerate(rows, 1):
             job.check()
-            job.message = f"{'Miniatures' if thumbnail_only else 'Copie hors ligne'} · {index} / {len(rows)}"
+            job.message = f"{'Previews' if thumbnail_only else 'Saving originals'} · {index} / {len(rows)}"
             try:
                 await self.download(session, key, row, thumbnail_only)
             except ValueError:
                 failures += 1
         if failures:
-            job.warnings.append(f"{failures} image(s) indisponible(s) ou hors limites.")
+            job.warnings.append(f"{failures} images unavailable or over the size limit.")
 
     async def offline(self, job, key):
         async with self.session() as session:
             await self.cache_all(session, job, key, thumbnail_only=False)
-        job.message = "Téléchargement hors ligne terminé."
+        job.message = "Offline download complete."

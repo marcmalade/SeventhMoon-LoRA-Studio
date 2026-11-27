@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import io
 import json
 import sqlite3
@@ -202,7 +204,7 @@ class CatalogTest(Storage, unittest.TestCase):
         row = self.catalog.presets()[0]["stack"]["rows"][0]
         self.assertEqual((row["strength"], row["strength_clip"]), (0, -0.5))
         for value in (101, "0.5", float("nan"), True):
-            with self.assertRaisesRegex(ValueError, "encodeur"):
+            with self.assertRaisesRegex(ValueError, "text encoder"):
                 parse_stack({"rows": [{"file": "text.pt", "strength_clip": value}]})
 
     def test_private_prompt_and_strength_are_catalog_data(self):
@@ -239,10 +241,71 @@ class CatalogTest(Storage, unittest.TestCase):
         with self.assertRaises(RemoteError):
             association("https://civitai.com.example.org/models/42")
 
+    def test_legacy_gallery_stays_in_backups_and_prioritizes_cover_and_local_images(self):
+        ids = [f"{index:032x}" for index in range(22)]
+        with self.catalog.connection(write=True) as conn:
+            for media_id in ids:
+                self.media.insert(conn, self.key, media_id, "civitai")
+        local = self.media.add(self.key, image(17))
+        self.media.change(self.key, ids[-1], action="cover")
+        visible = self.media.page(self.key, 0, 40)
+        self.assertEqual((visible["total"], visible["archived"]), (15, 8))
+        self.assertIn(local, [item["id"] for item in visible["items"]])
+        self.assertEqual(visible["items"][visible["cover_index"]]["id"], ids[-1])
+        self.assertEqual(len(backup.snapshot(self.catalog)["loras"][0]["media"]), 23)
+
 
 class ServiceTest(Storage, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.setup_storage()
+
+    async def test_automatic_civitai_lookup_skips_private_files_and_caches_no_match(self):
+        for name in ("private", "unmatched"):
+            (self.folders.root / f"{name}.safetensors").write_bytes(name.encode())
+        self.catalog.scan(force=True)
+        private = self.catalog.get_by_path("private.safetensors")
+        self.catalog.edit(private["id"], {"origin": "Privé"})
+        self.catalog.edit(self.key, {"display_name": "My local title"})
+        hash_urls = []
+
+        async def fake_json(_service, _session, url):
+            if "/by-hash/" in url:
+                hash_urls.append(url)
+                if url.endswith(hashlib.sha256(b"unmatched").hexdigest()):
+                    raise RemoteError("Not found", 404)
+                return {"id": 73, "model": {"name": "Remote title"}, "baseModel": "Test family"}
+            return {"items": []}
+
+        routes = web.RouteTableDef()
+        register(routes, self.catalog)
+        app = web.Application()
+        app.add_routes(routes)
+        headers = {"X-SML-Studio": "1"}
+        with patch.object(Civitai, "json", fake_json):
+            async with TestClient(TestServer(app)) as client:
+                for _ in range(2):
+                    await client.post("/sml-lora/civitai/auto", headers=headers, json={"first": self.key})
+                    for _ in range(100):
+                        response = await client.get("/sml-lora/civitai/auto")
+                        if not (await response.json())["running"]:
+                            break
+                        await asyncio.sleep(0.025)
+                    else:
+                        self.fail("Automatic lookup did not finish")
+        self.assertEqual(len(hash_urls), 2)
+        self.assertEqual(hash_urls[0].rsplit("/", 1)[-1], hashlib.sha256(b"test-local").hexdigest())
+        self.assertEqual(self.catalog.get(self.key)["data"]["display_name"], "My local title")
+        self.assertEqual(self.catalog.get(self.key)["remote_metadata"]["version_id"], "73")
+        self.assertEqual(self.catalog.get(private["id"])["remote_metadata"], {})
+
+    async def test_civitai_import_and_preview_cache_stop_at_fifteen(self):
+        service = Civitai(self.catalog, self.media)
+        self.media.add(self.key, image(17))
+        entries = [{"id": index, "url": f"https://image.civitai.com/test/image{index}/a.png"} for index in range(1, 25)]
+        self.assertEqual(service.record(self.key, None, entries, "", "version"), 14)
+        self.assertEqual(service.record(self.key, None, entries, "", "version"), 0)
+        self.assertEqual(len(service.pending(self.key, "thumbnail")), 14)
+        self.assertEqual(self.media.page(self.key, 0, 40)["total"], 15)
 
     async def test_paginated_civitai_dedup_local_precedence_and_lazy_hd(self):
         self.catalog.edit(self.key, {"triggers": ["déjà\nà moi"], "name": "Privé 🌙"})

@@ -1,6 +1,6 @@
 [project]
 name = "seventh-moon-lora-studio"
-version = "0.3.3"
+version = "0.4.0"
 description = "A local LoRA library and stack loaders for ComfyUI, with independent model and text encoder strengths"
 readme = "README.md"
 requires-python = ">=3.11"

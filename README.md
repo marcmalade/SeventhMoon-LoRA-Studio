@@ -22,7 +22,7 @@ python -m pip install -r custom_nodes/SeventhMoon-LoRA-Studio/requirements.txt
 python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\SeventhMoon-LoRA-Studio\requirements.txt
 ```
 
-Restart ComfyUI. The extension works with Pillow and aiohttp versions used by ComfyUI, including installations that share Pillow 12 with other extensions. On Pillow versions before 13, the browser displays the image previews from the stored files. With Pillow 13 or newer, LoRA Studio can generate smaller preview files on the server. The nodes and local library work without an account or API token. The interface labels below match the current French UI. [ComfyUI installation guide](https://docs.comfy.org/installation/install_custom_node)
+Restart ComfyUI. The extension works with Pillow and aiohttp versions used by ComfyUI, including installations that share Pillow 12 with other extensions. On Pillow versions before 13, the browser displays the image previews from the stored files. With Pillow 13 or newer, LoRA Studio can generate smaller preview files on the server. The nodes and local library work without an account or API token. [ComfyUI installation guide](https://docs.comfy.org/installation/install_custom_node)
 
 To update a Git installation, run `git pull --ff-only` inside the existing node folder. For a ZIP installation, replace the existing node folder with the one from the latest ZIP. Rerun the dependency command and restart ComfyUI. The library is stored in the ComfyUI user directory.
 
@@ -35,9 +35,9 @@ To update a Git installation, run `git pull --ff-only` inside the existing node 
 
 Find both nodes under **Seventh Moon Labs**. A prompt is optional for the loader. The optional `STRING` output contains only trigger words you explicitly select.
 
-1. Click **Ajouter un LoRA** (Add a LoRA). The row starts with the card's recommended strength when available, or `1` otherwise.
-2. Edit strengths directly in the row. The Model and CLIP variant gives you independent `MODEL` and `CLIP` values. Set either value to `0` to skip that branch. To reapply the recommended model strength, open `ⓘ` and click **Utiliser dans le node** (Use in node).
-3. Open **Catégories** for collapsible groups. Use `…` to assign a workflow-specific group. Return to the flat view and use `↑` or `↓` to change the application order.
+1. Click **Add LoRA**. The row starts with the card's recommended strength when available, or `1` otherwise.
+2. Edit strengths directly in the row. The Model and CLIP variant gives you independent `MODEL` and `CLIP` values. Set either value to `0` to skip that branch. To reapply the recommended model strength, open `ⓘ` and click **Apply to stack**.
+3. Open **Categories** for collapsible groups. Use `…` to assign a workflow-specific group. Return to the flat view and use `↑` or `↓` to change the application order.
 4. Use **Presets** to reuse a stack. The workflow also saves the LoRA paths, enabled states, strengths, order, selected triggers, and grouping.
 
 Both variants use ComfyUI's native LoRA loading and match weights against the connected model or text encoder. Use a compatible LoRA for your checkpoint. If a format or adapter requires a dedicated loader, keep that loader in the workflow. SML reports the file name if the selected LoRA applies no native patches. [Native LoRA loaders](https://docs.comfy.org/built-in-nodes/LoraLoader)
@@ -46,22 +46,25 @@ Open workflows saved with older model-specific nodes in ComfyUI and save them ag
 
 ## Library, prompts, and galleries
 
-Open **SML LoRA Library** in the sidebar. It indexes the formats registered for `loras` in ComfyUI, including subdirectories and additional model paths. Click **Agrandir** to expand the library. Use grid or list view and filter by base model, category, origin, favorites, or saved prompts. Enter any base model in **Modèle de base** or use the value returned by Civitai. LoRAs with no model filled in are still available in the library and node picker.
+Open **SML LoRA Library** in the sidebar. The library and node picker show a continuous searchable list of LoRAs from ComfyUI's configured `loras` paths, including subdirectories. Open **Filters** to narrow the list, or **Expand** to reduce scrolling on a narrow sidebar. Enter any family in **Base model** or use the value returned by Civitai.
 
-- **LoRA prompts**. Open **Prompts du LoRA** to type or paste a default prompt and negative prompt. Both fields support multiline text and autosave. **Enregistrer maintenant** saves immediately. Copy a saved prompt from the card whenever you want to use it.
-- **Example images**. Add or drag in PNG, JPEG, and WebP images. Use `←` and `→` to browse, `+` and `−` to zoom, `0` to fit, and `Esc` to exit full-screen view. Reorder examples, add captions, and pick a cover image.
-- **Prompts per image**. Open **Prompt et réglages** on any example image to see available generation metadata or enter your own prompt and settings. You can copy each prompt or set it as the LoRA's default. Image edits autosave and also offer manual save.
-- **Renamed files**. The library preserves a card when it can identify a file after a rename. To restore the link manually, open a missing card and use **Relier un fichier** (Relink a file).
+- **LoRA cards**. **Edit** opens common fields, with secondary fields under **More fields**. Changes autosave. **Save now** is available for an immediate save or retry.
+- **LoRA prompts**. Open **Prompts** to type or paste a default prompt and negative prompt. Both fields support multiline text and autosave.
+- **Example images**. Add or drag in PNG, JPEG and WebP images. The gallery shows up to 15 images, prioritizing the cover, personal examples and edited captions or settings. Older images are retained in backups. To add another personal image when you have 15, remove or replace one. Use `←` and `→` to browse, `+` and `−` to zoom, and `0` to fit.
+- **Prompts per image**. Open **Prompt & settings** to view or edit generation metadata. Copy a prompt or use it as the LoRA default. Changes autosave.
+- **Renamed files**. The library preserves a card when it can identify a file after a rename. To restore the link manually, open a missing card and use **Relink missing file**.
 
-## Optional Civitai lookup
+## Automatic Civitai lookup
 
-From a card, choose **Récupérer Civitai** (Fetch from Civitai) and paste a model URL, version URL, or version ID. You can also explicitly request a SHA-256 lookup. Synchronization preserves your local edits, personal examples, cover, and gallery order. Civitai controls which images and generation metadata its API exposes. **Télécharger pour hors ligne** caches the available images for offline viewing.
+Opening the library, picker or a card starts a background lookup of eligible unlinked files. The extension sends the SHA-256 hash to Civitai. Cards you explicitly mark **Private** are skipped, and an unchanged file with no match is retried after seven days. Turn off **Auto Civitai lookup** under **Tools** to keep library browsing offline. You can still link a model by URL or version ID from a card's **Civitai** menu.
 
-If you need authenticated Civitai requests, set your own `SML_CIVITAI_API_TOKEN` in the environment that launches ComfyUI. The token is sent only to `https://civitai.com/api/v1/`. Opening and editing local cards works offline. [Civitai API reference](https://github.com/civitai/civitai-developer-docs/blob/main/site/reference/index.md)
+Synchronization preserves local edits and uses up to 15 gallery slots per LoRA. Civitai controls which example images and generation metadata its API exposes.
+
+If you need authenticated Civitai requests, set your own `SML_CIVITAI_API_TOKEN` in the environment that launches ComfyUI. The token is sent only to `https://civitai.com/api/v1/`. Local cards remain available when Civitai is offline. [Civitai API reference](https://github.com/civitai/civitai-developer-docs/blob/main/site/reference/index.md)
 
 ## Back up or move a library
 
-The SQLite catalog and cached images live in `seventh-moon-lora-studio/` under the ComfyUI user directory. **Exporter ZIP** includes cards, presets, cached images, their order and covers. **Exporter JSON** exports card data and references. Import merges by card ID or relative file path and preserves existing local edits.
+The SQLite catalog and cached images live in `seventh-moon-lora-studio/` under the ComfyUI user directory. **Export ZIP** includes cards, presets, cached images, their order and covers. **Export JSON** exports card data and references. Import merges by card ID or relative file path and preserves existing local edits.
 
 Anyone with access to the ComfyUI instance can access this shared catalog. For access over a network, put ComfyUI behind an authenticated gateway or use a private network.
 

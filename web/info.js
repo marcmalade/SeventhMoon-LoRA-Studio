@@ -1,14 +1,15 @@
 import { gallery } from "./gallery.js";
-import { autoSave, button, categoryField, copy, display, el, modal, origins, request, select } from "./ui.js";
+import { autoSave, button, cardSource, categoryField, copy, display, el, modal, origins, request, select, watchCivitai } from "./ui.js";
 
 const jobs = new Map();
+const MAX_IMAGES = 15;
 const fields = [
-  ["name", "Nom original"], ["display_name", "Nom d’affichage"], ["type", "Modèle de base"],
-  ["version", "Version"], ["author", "Auteur"], ["origin", "Origine"],
-  ["strength", "Force recommandée"], ["category", "Catégorie"], ["favorite", "Favori"],
-  ["description", "Description"], ["notes", "Notes privées"], ["tags", "Tags"],
+  ["name", "Original name"], ["display_name", "Display name"], ["type", "Base model"],
+  ["version", "Version"], ["author", "Author"], ["origin", "Source"],
+  ["strength", "Recommended strength"], ["category", "Category"],
+  ["description", "Description"], ["notes", "Private notes"], ["tags", "Tags"],
 ];
-const prompts = [["default_prompt", "Prompt par défaut"], ["default_negative_prompt", "Prompt négatif par défaut"]];
+const prompts = [["default_prompt", "Default prompt"], ["default_negative_prompt", "Default negative prompt"]];
 
 function cardField(label, value, className = "") {
   return el("div", { className: `sml-field ${className}` }, el("dt", { textContent: label }), el("dd", {}, value ?? "—"));
@@ -22,12 +23,12 @@ function readLink(raw) {
 }
 
 function editDefaultPrompts(card, onSave) {
-  const { dialog } = modal(`Prompts du LoRA · ${display(card)}`, "sml-editor");
+  const { dialog } = modal(`LoRA prompts · ${display(card)}`, "sml-editor");
   const form = el("form", { className: "sml-form" });
   const inputs = new Map();
   for (const [key, label] of prompts) {
     const input = el("textarea", { value: card.data[key] ?? "", rows: 5, maxLength: 65536,
-      placeholder: "Écrire ou coller un prompt…", spellcheck: false });
+      placeholder: "Type or paste a prompt…", spellcheck: false });
     form.append(el("label", {}, label, input));
     inputs.set(key, input);
   }
@@ -40,117 +41,95 @@ function editDefaultPrompts(card, onSave) {
 }
 
 function editCard(card, onSave) {
-  const { dialog } = modal("Modifier la fiche", "sml-editor");
+  const { dialog } = modal("Edit LoRA", "sml-editor");
   const form = el("form", { className: "sml-form" });
-  const error = el("output", { role: "status" });
-  const read = {};
-  const resets = new Set();
+  const inputs = new Map();
   const grid = el("div", { className: "sml-form-grid" });
-  const reset = (key, field) => {
-    if (!Object.hasOwn(card.user_overrides, key)) return null;
-    return button("Rétablir", (event) => {
-      resets.add(key);
-      field.querySelectorAll("input,textarea,select,button").forEach((node) => { node.disabled = true; });
-      event.currentTarget.disabled = true;
-      event.currentTarget.textContent = "Sera rétabli";
-    }, { className: "sml-text-button", title: "Rétablir la valeur Civitai ou la valeur par défaut" });
-  };
+  const advanced = el("div", { className: "sml-form-grid" });
+  const quickFields = new Set(["display_name", "type", "category", "strength", "origin", "notes"]);
+  let saver;
+  const reset = (key, field) => Object.hasOwn(card.user_overrides, key) ? button("↺", (event) => {
+    event.currentTarget.disabled = true;
+    field.querySelectorAll("input,textarea,select,button").forEach((node) => { node.disabled = true; });
+    saver.queue(key, null);
+  }, { className: "sml-text-button sml-reset", title: "Restore the imported or default value",
+    "aria-label": "Reset " + (fields.find(([field]) => field === key)?.[1] ?? "triggers") }) : null;
   for (const [key, label] of fields) {
     const value = card.data[key];
     let input;
     let suggestions;
     if (key === "origin") {
-      input = select(origins, value, label);
+      input = select([["", "Automatic"], ...origins], card.user_overrides.origin ?? "", label);
     } else if (key === "type") {
-      input = el("input", { type: "text", value: value ?? "", maxLength: 500, placeholder: "Nom ou famille du modèle" });
+      input = el("input", { type: "text", value: value ?? "", maxLength: 500, placeholder: "Model or family name" });
     } else if (key === "category") {
       ({ input, list: suggestions } = categoryField(value ?? "", label));
     } else if (["description", "notes", "tags"].includes(key)) {
-      input = el("textarea", { value: Array.isArray(value) ? value.join("\n") : value ?? "", rows: 3 });
+      input = el("textarea", { value: Array.isArray(value) ? value.join("\n") : value ?? "", rows: key === "notes" ? 2 : 3 });
     } else {
-      input = el("input", { type: key === "favorite" ? "checkbox" : key === "strength" ? "number" : "text",
-        value: value ?? "", checked: Boolean(value), min: -100, max: 100, step: "any" });
+      input = el("input", { type: key === "strength" ? "number" : "text",
+        value: value ?? "", min: -100, max: 100, step: "any" });
     }
-    const content = el("label", {}, label, input);
-    grid.append(el("div", {}, content, suggestions, reset(key, content)));
-    read[key] = () => {
-      if (key === "favorite") return input.checked;
+    const read = () => {
+      if (key === "origin") return input.value || null;
       if (key === "strength") return input.value === "" ? null : Number(input.value);
       if (key === "tags") return input.value.split("\n").map((tag) => tag.trim()).filter(Boolean);
-      if (key === "category") return input.value.trim();
-      if (key === "type") return input.value.trim() || null;
+      if (key === "category" || key === "type" || key === "display_name") return input.value.trim() || null;
       return input.value;
     };
+    const field = el("label", {}, label, input);
+    (quickFields.has(key) ? grid : advanced).append(el("div", { className: "sml-edit-field" +
+      (key === "notes" || key === "description" ? " sml-form-wide" : "") },
+      field, suggestions, reset(key, field)));
+    inputs.set(key, { input, read });
   }
   const words = el("div", { className: "sml-trigger-edit" });
+  const readWords = () => [...words.querySelectorAll("textarea")].map((input) => input.value).filter((word) => word.trim());
   function addWord(text = "") {
-    const input = el("textarea", { value: text, rows: 2, "aria-label": "Trigger word" });
-    const row = el("div", {}, input, button("×", () => row.remove(), { "aria-label": "Retirer ce trigger" }));
+    const input = el("textarea", { value: text, rows: 1, "aria-label": "Trigger word" });
+    const row = el("div", {}, input, button("×", () => {
+      row.remove();
+      saver.queue("triggers", readWords());
+    }, { "aria-label": "Remove trigger" }));
     words.append(row);
     return input;
   }
   for (const word of card.data.triggers ?? []) addWord(word);
-  const wordControls = el("fieldset", {}, el("legend", { textContent: "Trigger words" }), words,
-    button("Ajouter un trigger", () => addWord().focus()));
-  read.triggers = () => [...words.querySelectorAll("textarea")].map((input) => input.value).filter((word) => word.trim());
-  const before = Object.fromEntries(Object.entries(read).map(([key, get]) => [key, JSON.stringify(get())]));
-  const save = el("button", { type: "submit", className: "sml-primary", textContent: "Enregistrer" });
-  form.append(grid, wordControls, reset("triggers", wordControls), error,
-    el("div", { className: "sml-actions" }, button("Prompts du LoRA", () => editDefaultPrompts(card, (updated) => {
-      card = updated;
-      onSave(updated);
-    })), button("Annuler", () => dialog.close()), save));
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    const changes = {};
-    for (const [key, get] of Object.entries(read)) {
-      const value = get();
-      if (resets.has(key)) changes[key] = null;
-      else if (JSON.stringify(value) !== before[key]) changes[key] = value;
-    }
-    save.disabled = true;
-    try {
-      const updated = await request(`/cards/${card.id}`, "PATCH", changes);
-      dialog.close();
-      onSave(updated);
-    } catch (failure) {
-      error.textContent = failure.message;
-      save.disabled = false;
-    }
-  };
+  const wordControls = el("fieldset", { className: "sml-edit-field" }, el("legend", { textContent: "Trigger words" }), words,
+    button("Add trigger", () => addWord().focus()), reset("triggers", words));
+  inputs.set("triggers", { input: words, read: readWords });
+  form.append(grid, el("details", { className: "sml-details" }, el("summary", { textContent: "More fields" }),
+    advanced, wordControls));
+  saver = autoSave(dialog, form, inputs, async (changes) => {
+    onSave(await request(`/cards/${card.id}`, "PATCH", changes));
+  });
   dialog.append(form);
 }
 
 function syncOptions(card, run) {
-  const { dialog } = modal("Associer à Civitai", "sml-small");
-  const address = el("input", { placeholder: "https://civitai.com/models/… ou ID de version", "aria-label": "URL ou ID de version" });
-  const extended = el("input", { type: "checkbox" });
+  const { dialog } = modal("Link Civitai model", "sml-small");
+  const address = el("input", { placeholder: "https://civitai.com/models/… or version ID", "aria-label": "URL or version ID" });
   const form = el("form", { className: "sml-form", onsubmit: (event) => {
     event.preventDefault();
     if (!address.value.trim()) { address.focus(); return; }
     dialog.close();
-    run({ method: "url", value: address.value, extended: extended.checked });
-  } }, el("label", {}, "URL du modèle, URL de version ou ID de version", address),
-  el("label", { className: "sml-check" }, extended, "Inclure la galerie étendue du modèle"),
-  el("div", { className: "sml-actions" }, button("Rechercher par SHA256", () => {
-    if (!window.confirm("Envoyer l’empreinte SHA256 de ce LoRA à Civitai pour identifier sa version ?")) return;
-    dialog.close();
-    run({ method: "hash", extended: extended.checked });
-  }, { disabled: !card.present }), el("button", { type: "submit", className: "sml-primary", textContent: "Récupérer" })));
+    run({ method: "url", value: address.value });
+  } }, el("label", {}, "Model URL, version URL, or version ID", address),
+  el("button", { type: "submit", className: "sml-primary", textContent: "Link model" }));
   dialog.append(form);
   address.focus();
 }
 
 export async function openInfo({ key, file, stack, onChange }) {
   const { dialog, heading, tools } = modal("SML LoRA Info", "sml-info");
-  const model = el("section", { className: "sml-meta", "aria-label": "Informations du modèle" });
+  const model = el("section", { className: "sml-meta", "aria-label": "Model details" });
   const statusLine = el("output", { className: "sml-status", role: "status" });
   const status = (value) => { statusLine.textContent = value; };
   const footer = el("footer", { className: "sml-footer" }, statusLine);
   const actions = el("div", { className: "sml-actions" });
   footer.append(actions);
   dialog.append(model, footer);
-  status("Chargement de la fiche…");
+  status("Loading LoRA…");
   try {
     let card;
     if (key) {
@@ -172,7 +151,7 @@ export async function openInfo({ key, file, stack, onChange }) {
       onPromptsChange: replaceCard });
     dialog.insertBefore(images.root, footer);
     dialog.append(input);
-    const stop = button("Annuler l’opération", async () => {
+    const stop = button("Cancel sync", async () => {
       try { await request(`/jobs/${currentJob}`, "DELETE"); }
       catch (error) { status(error.message); }
     }, { hidden: true });
@@ -186,16 +165,21 @@ export async function openInfo({ key, file, stack, onChange }) {
 
     async function importFiles(files, replace) {
       if (!files.length) return;
+      const batch = [...files].slice(0, replace ? 1 : Math.max(0, MAX_IMAGES - card.local_images));
       const failures = [];
-      for (const [index, file] of [...files].entries()) {
-        status(`Import ${index + 1} / ${files.length} · ${file.name}`);
+      let imported = 0;
+      for (const [index, file] of batch.entries()) {
+        status(`Importing ${index + 1} / ${batch.length} · ${file.name}`);
         try {
           await request(`/cards/${key}/media${replace ? `?replace=${replace}` : ""}`, "POST", file);
+          imported++;
         } catch (error) { failures.push(`${file.name} · ${error.message}`); }
       }
       await update();
       await images.refresh(replace ? undefined : Math.max(0, card.image_count - 1));
-      status(failures.join(" • ") || `${files.length} image(s) importée(s).`);
+      if (batch.length < files.length) failures.push("This LoRA can hold up to 15 personal images. Remove or replace one to make room.");
+      status([imported ? `${imported} images imported` : "", ...failures]
+        .filter(Boolean).join(" · "));
     }
 
     input.onchange = () => {
@@ -248,16 +232,16 @@ export async function openInfo({ key, file, stack, onChange }) {
     async function relink() {
       try {
         const cards = (await request("/scan", "POST")).filter((candidate) => candidate.present);
-        const { dialog: picker } = modal("Relier un fichier local", "sml-small");
-        const pick = select(cards.map((candidate) => [candidate.file, candidate.file]), cards[0]?.file, "Fichier de remplacement");
+        const { dialog: picker } = modal("Relink local file", "sml-small");
+        const pick = select(cards.map((candidate) => [candidate.file, candidate.file]), cards[0]?.file, "Replacement file");
         const error = el("output", { role: "status" });
-        const submit = button("Relier la fiche", async () => {
+        const submit = button("Relink file", async () => {
           submit.disabled = true;
           try {
             await request(`/cards/${key}/relink`, "POST", { file: pick.value });
             picker.close();
             await update();
-            status("Fichier relié à la fiche.");
+            status("File relinked.");
           } catch (failure) { error.textContent = failure.message; submit.disabled = false; }
         }, { disabled: !cards.length, className: "sml-primary" });
         picker.append(el("div", { className: "sml-form" }, pick, error, submit));
@@ -268,55 +252,61 @@ export async function openInfo({ key, file, stack, onChange }) {
       const meta = card.data;
       const remote = card.remote_metadata;
       heading.textContent = display(card);
-      tools.replaceChildren(el("span", { className: "sml-badge", textContent: meta.origin }),
+      tools.replaceChildren(button("Edit", () => editCard(card, replaceCard)),
+        button("Prompts", () => editDefaultPrompts(card, replaceCard)),
         button(meta.favorite ? "★" : "☆", async () => {
           try {
             await request(`/cards/${key}`, "PATCH", { favorite: !meta.favorite });
             await update();
           } catch (error) { status(error.message); }
-        }, { className: "sml-icon", "aria-label": meta.favorite ? "Retirer des favoris" : "Ajouter aux favoris" }));
+        }, { className: "sml-icon", "aria-label": meta.favorite ? "Remove from favorites" : "Add to favorites" }));
       const link = readLink(remote.url);
-      const date = Date.parse(remote.synced_at);
+      const more = model.querySelector(".sml-details")?.open ?? false;
       const triggers = el("div", { className: "sml-triggers" });
       const words = [...new Set([...(meta.triggers || []), ...selected])];
       const copyWords = async (values) => {
-        try { await copy(values.join(", ")); status("Trigger words copiés."); }
+        try { await copy(values.join(", ")); status("Triggers copied."); }
         catch (error) { status(error.message); }
       };
       for (const word of words) {
-        const check = el("input", { type: "checkbox", checked: selected.has(word), "aria-label": `Sélectionner ${word}` });
-        check.onchange = () => { if (check.checked) selected.add(word); else selected.delete(word); stack?.set([...selected]); };
+        const check = stack ? el("input", { type: "checkbox", checked: selected.has(word), "aria-label": `Select ${word}` }) : null;
+        if (check) check.onchange = () => { if (check.checked) selected.add(word); else selected.delete(word); stack.set([...selected]); };
         triggers.append(el("span", { className: "sml-trigger" }, check,
-          button(word, () => copyWords([word]), { title: "Copier ce trigger" })));
+          button(word, () => copyWords([word]), { title: "Copy trigger" })));
       }
-      if (words.length) triggers.append(button("Copier la sélection", () => copyWords([...selected]), { className: "sml-text-button" }));
+      if (words.length && stack) triggers.append(button("Copy selected", () => copyWords([...selected]), { className: "sml-text-button" }));
       const promptActions = el("div", { className: "sml-actions" });
-      for (const [key, label] of prompts) if (meta[key]) promptActions.append(button(key === "default_prompt" ? "Copier le prompt" : "Copier le négatif", async () => {
-        try { await copy(meta[key]); status(`${label} copié.`); }
+      for (const [key, label] of prompts) if (meta[key]) promptActions.append(button(key === "default_prompt" ? "Copy prompt" : "Copy negative prompt", async () => {
+        try { await copy(meta[key]); status(`${label} copied.`); }
         catch (error) { status(error.message); }
       }, { className: "sml-text-button" }));
-      const strengthActions = el("div", { className: "sml-field-actions" }, meta.strength?.toString() ?? "—",
-        stack && Number.isFinite(meta.strength) ? button("Utiliser dans le node", () => {
+      const strengthActions = el("span", { className: "sml-field-actions" }, `Strength ${meta.strength}`,
+        stack && Number.isFinite(meta.strength) ? button("Apply to stack", () => {
           stack.useStrength(meta.strength);
-          status(`Force ${meta.strength} copiée dans la ligne du node.`);
+          status(`Applied strength ${meta.strength} to the stack.`);
         }, { className: "sml-text-button" }) : null);
-      const grid = el("dl", { className: "sml-meta-grid" },
-        cardField("Nom original", meta.name), cardField("Modèle de base", meta.type), cardField("Origine", meta.origin),
-        cardField("Fichier", card.file), cardField("Version", meta.version), cardField("Auteur", meta.author),
-        cardField("Nom d’affichage", meta.display_name), cardField("Force recommandée", strengthActions), cardField("Catégorie", meta.category),
-        cardField("Trigger words", words.length ? triggers : null), cardField("Tags", meta.tags?.length ? meta.tags.join(", ") : null),
-        cardField("Images", String(card.image_count)), cardField("Description", meta.description),
-        cardField("Notes privées", meta.notes), cardField("Synchronisé le", Number.isFinite(date) ? new Date(date).toLocaleString("fr-FR") : null),
-        cardField("Civitai", link ? el("a", { href: link, target: "_blank", rel: "noopener noreferrer", textContent: "Ouvrir la page Civitai" }) : null),
-        cardField("Fichier local", card.present ? "Disponible" : "Absent"),
-        ...prompts.filter(([key]) => meta[key]).map(([key, label]) => cardField(label, meta[key], "sml-field-wide")));
-      model.replaceChildren(el("div", { className: "sml-section-head" }, el("h3", { textContent: "Informations du modèle" }),
-        el("div", { className: "sml-actions" }, promptActions, !card.present ? button("Relier un fichier", relink) : null,
-          button("Prompts du LoRA", () => editDefaultPrompts(card, replaceCard)),
-          button("Modifier la fiche", () => editCard(card, replaceCard), { className: "sml-text-button" }))), grid);
-      actions.replaceChildren(button("Récupérer Civitai", () => syncOptions(card, start)));
-      if (remote.version_id) actions.append(button("Actualiser", () => start({ method: "refresh" })),
-        button("Télécharger pour hors ligne", () => start({ method: "offline" }), { className: "sml-primary" }));
+      const values = [["File", card.file], ["Original name", meta.name !== display(card) && meta.name], ["Version", meta.version],
+        ["Tags", meta.tags?.join(", ")], ["Description", meta.description], ["Private notes", meta.notes]];
+      model.replaceChildren(...[
+        el("div", { className: "sml-summary" },
+          el("span", { textContent: [meta.type, meta.category, cardSource(card), meta.author].filter(Boolean).join(" · ") }),
+          Number.isFinite(meta.strength) ? strengthActions : null,
+          !card.present ? button("Relink missing file", relink) : null),
+        words.length ? el("div", { className: "sml-trigger-line" },
+          el("span", { className: "sml-muted", textContent: "Triggers" }), triggers) : null,
+        promptActions.childElementCount ? promptActions : null,
+        el("details", { className: "sml-details", open: more }, el("summary", { textContent: "Details" }),
+          el("dl", { className: "sml-meta-grid" }, values.filter(([, value]) => value)
+            .map(([label, value]) => cardField(label, value, label === "Description" || label === "Private notes" ? "sml-field-wide" : ""))))].filter(Boolean));
+      const menu = el("details", { className: "sml-popover" }, el("summary", { textContent: "Civitai" }),
+        el("div", { className: "sml-tool-panel" },
+          card.present ? button("Look up by SHA-256", () => start({ method: "hash" })) : null,
+          button("Link manually", () => syncOptions(card, start)),
+          remote.version_id ? button("Refresh", () => start({ method: "refresh" })) : null,
+          remote.version_id ? button("Download images for offline use", () => start({ method: "offline" })) : null));
+      actions.replaceChildren(...[card.archived_images ? el("span", { className: "sml-muted",
+        title: "Older images are still included in your library exports.", textContent: `${card.archived_images} archived` }) : null,
+        link ? el("a", { href: link, target: "_blank", rel: "noopener noreferrer", textContent: "Open on Civitai ↗" }) : null, menu].filter(Boolean));
     }
 
     async function poll(id) {
@@ -349,5 +339,12 @@ export async function openInfo({ key, file, stack, onChange }) {
     await images.refresh(0, true);
     status("");
     if (jobs.has(key)) poll(jobs.get(key));
+    watchCivitai(dialog, async () => {
+      const updated = await request(`/cards/${key}`);
+      if (updated.remote_metadata.synced_at !== card.remote_metadata.synced_at && dialog.open) {
+        replaceCard(updated);
+        await images.refresh();
+      }
+    }, undefined, key);
   } catch (error) { status(error.message); }
 }

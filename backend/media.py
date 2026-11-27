@@ -13,7 +13,7 @@ from pathlib import Path
 from packaging.version import Version
 from PIL import Image, ImageOps, UnidentifiedImageError, __version__ as pillow_version
 
-from .catalog import dump, now
+from .catalog import GALLERY_LIMIT, GALLERY_ORDER, dump, now
 from .image_headers import identify
 
 
@@ -30,7 +30,7 @@ def generation_data(value, *, keep_empty=False):
     if not isinstance(value, dict) or value.keys() - set(GENERATION_FIELDS) or any(
         not isinstance(content, str) or len(content) > 262144 for content in value.values()
     ):
-        raise ValueError("Chaque champ de génération doit être un texte de 262 144 caractères au plus.")
+        raise ValueError("Each generation field must be text of at most 262,144 characters.")
     return {key: value[key] for key in GENERATION_FIELDS if key in value and (keep_empty or value[key])}
 
 
@@ -41,7 +41,7 @@ class Media:
 
     def path(self, key):
         if not isinstance(key, str) or not BLOB.fullmatch(key):
-            raise ValueError("Référence d’image invalide.")
+            raise ValueError("Invalid image reference.")
         return self.directory / key
 
     def store(self, content, extension):
@@ -62,15 +62,15 @@ class Media:
 
     def decode(self, content, preview_only=False):
         if not 0 < len(content) <= MAX_IMAGE:
-            raise ValueError("Chaque image doit contenir au plus 48 Mio.")
+            raise ValueError("Images must be 48 MiB or smaller.")
         if not CAN_RENDER_THUMBNAILS:
             # Older Pillow versions have known decoder bugs for untrusted images.
             # Serve the original or Civitai's preview for the browser to render.
             extension, dimensions = identify(content)
             if dimensions is None or min(dimensions) < 1:
-                raise ValueError("Image PNG, JPEG ou WebP valide requise.")
+                raise ValueError("A valid PNG, JPEG, or WebP image is required.")
             if dimensions[0] * dimensions[1] > MAX_PIXELS:
-                raise ValueError("L’image dépasse 64 mégapixels.")
+                raise ValueError("Images must be 64 megapixels or smaller.")
             blob = self.store(content, extension)
             return None if preview_only else blob, blob
         try:
@@ -78,7 +78,7 @@ class Media:
                 warnings.simplefilter("error", Image.DecompressionBombWarning)
                 with Image.open(io.BytesIO(content), formats=list(FORMATS)) as image:
                     if image.width * image.height > MAX_PIXELS:
-                        raise ValueError("L’image dépasse 64 mégapixels.")
+                        raise ValueError("Images must be 64 megapixels or smaller.")
                     extension = FORMATS[image.format]
                     image.verify()
                 with Image.open(io.BytesIO(content), formats=list(FORMATS)) as image:
@@ -89,7 +89,7 @@ class Media:
                     thumb.save(buffer, "WEBP", quality=80)
         except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError,
                 Image.DecompressionBombWarning) as error:
-            raise ValueError("Image PNG, JPEG ou WebP valide requise.") from error
+            raise ValueError("A valid PNG, JPEG, or WebP image is required.") from error
         thumbnail = self.store(buffer.getvalue(), "webp")
         return None if preview_only else self.store(content, extension), thumbnail
 
@@ -98,7 +98,7 @@ class Media:
         row = conn.execute("SELECT * FROM media WHERE lora_id=? AND id=? AND hidden=0",
                            (lora_id, media_id)).fetchone()
         if row is None:
-            raise KeyError("Image introuvable.")
+            raise KeyError("Image not found.")
         return row
 
     @staticmethod
@@ -109,24 +109,40 @@ class Media:
               "has_generation": bool(row["has_generation"])}
 
     def add(self, key, content, replace=None):
+        if replace is None:
+            with self.catalog.connection() as conn:
+                self.catalog.row(conn, key)
+                duplicate = self.local_slot(conn, key, hashlib.sha256(content).hexdigest())
+                if duplicate:
+                    return duplicate
         original, thumbnail = self.decode(content)
         with self.catalog.connection(write=True) as conn:
             self.catalog.row(conn, key)
             if replace:
                 row = self.row(conn, key, replace)
                 if row["source"] != "local":
-                    raise ValueError("Seule une image personnelle peut être remplacée.")
+                    raise ValueError("Only a local image can be replaced.")
                 conn.execute("UPDATE media SET original=?,thumbnail=? WHERE id=?", (original, thumbnail, replace))
                 media_id = replace
             else:
-                duplicate = conn.execute("SELECT id FROM media WHERE lora_id=? AND original=? AND hidden=0",
-                                         (key, original)).fetchone()
+                duplicate = self.local_slot(conn, key, original.split(".")[0])
                 if duplicate:
-                    return duplicate["id"]
+                    return duplicate
                 media_id = uuid.uuid4().hex
                 self.insert(conn, key, media_id, "local", original=original, thumbnail=thumbnail)
             conn.execute("UPDATE loras SET updated=? WHERE id=?", (now(), key))
         return media_id
+
+    @staticmethod
+    def local_slot(conn, key, digest):
+        duplicate = conn.execute("SELECT id FROM media WHERE lora_id=? AND substr(original,1,64)=? AND hidden=0",
+                                 (key, digest)).fetchone()
+        if duplicate:
+            return duplicate["id"]
+        if conn.execute("SELECT COUNT(*) FROM media WHERE lora_id=? AND source='local' AND hidden=0",
+                        (key,)).fetchone()[0] >= GALLERY_LIMIT:
+            raise ValueError(f"This LoRA already has {GALLERY_LIMIT} personal images. Remove or replace one first.")
+        return None
 
     @staticmethod
     def insert(conn, key, media_id, source, *, caption="", original=None, thumbnail=None,
@@ -142,13 +158,22 @@ class Media:
     def page(self, key, offset, limit):
         with self.catalog.connection() as conn:
             card = self.catalog.row(conn, key)
-            rows = conn.execute("""SELECT id,source,caption,position,url,attribution,scope,original,thumbnail,
-                (generation<>'{}' OR remote_generation<>'{}') AS has_generation FROM media WHERE lora_id=? AND hidden=0
-                ORDER BY position,id LIMIT ? OFFSET ?""", (key, limit, offset)).fetchall()
+            visible = self.visible(conn, key, card["cover"])
             total = conn.execute("SELECT COUNT(*) FROM media WHERE lora_id=? AND hidden=0", (key,)).fetchone()[0]
-            cover = conn.execute("""SELECT COUNT(*) FROM media WHERE lora_id=? AND hidden=0 AND
-                position < (SELECT position FROM media WHERE id=? AND hidden=0)""", (key, card["cover"])).fetchone()[0]
-        return {"total": total, "cover_index": cover, "items": [self.payload(row) for row in rows]}
+        cover = next((index for index, row in enumerate(visible) if row["id"] == card["cover"]), 0)
+        return {"total": len(visible), "archived": max(0, total - len(visible)), "cover_index": cover,
+                "items": [self.payload(row) for row in visible[offset:offset + limit]]}
+
+    @staticmethod
+    def visible(conn, key, cover):
+        return conn.execute(f"""SELECT *, (generation<>'{{}}' OR remote_generation<>'{{}}') AS has_generation
+            FROM (SELECT * FROM media WHERE lora_id=? AND hidden=0 ORDER BY {GALLERY_ORDER} LIMIT ?)
+            ORDER BY position,id""", (key, cover, GALLERY_LIMIT)).fetchall()
+
+    def room(self, key):
+        with self.catalog.connection() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM media WHERE lora_id=? AND hidden=0", (key,)).fetchone()[0]
+        return max(0, GALLERY_LIMIT - count)
 
     def read(self, key, media_id):
         with self.catalog.connection() as conn:
@@ -163,10 +188,10 @@ class Media:
         with self.catalog.connection() as conn:
             row = conn.execute("SELECT original,thumbnail FROM media WHERE id=? AND hidden=0", (media_id,)).fetchone()
         if not row or not row[variant]:
-            raise KeyError("Cette image n’est pas disponible hors ligne.")
+            raise KeyError("This image is not available offline.")
         path = self.path(row[variant])
         if not path.is_file():
-            raise KeyError("La copie locale de cette image est absente.")
+            raise KeyError("The local image copy is missing.")
         return path
 
     def change(self, key, media_id, *, action, value=None):
@@ -186,15 +211,14 @@ class Media:
                 updated = json.loads(row["generation"]) | generation_data(value, keep_empty=True)
                 conn.execute("UPDATE media SET generation=? WHERE id=?", (dump(updated), media_id))
             elif action == "move" and type(value) is int and value in (-1, 1):
-                comparison, direction = ("<", "DESC") if value == -1 else (">", "ASC")
-                other = conn.execute(f"""SELECT id,position FROM media WHERE lora_id=? AND hidden=0
-                    AND position {comparison} ? ORDER BY position {direction} LIMIT 1""",
-                                     (key, row["position"])).fetchone()
-                if other:
+                gallery = self.visible(conn, key, self.catalog.row(conn, key)["cover"])
+                index = next((i for i, entry in enumerate(gallery) if entry["id"] == media_id), None)
+                if index is not None and 0 <= index + value < len(gallery):
+                    other = gallery[index + value]
                     conn.executemany("UPDATE media SET position=? WHERE id=?",
                                      [(row["position"], other["id"]), (other["position"], media_id)])
             else:
-                raise ValueError("Action de galerie invalide.")
+                raise ValueError("Invalid gallery action.")
             conn.execute("UPDATE loras SET updated=? WHERE id=?", (now(), key))
 
     def cache_remote(self, key, media_id, url, content, thumbnail_only):

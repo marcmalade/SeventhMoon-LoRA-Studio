@@ -1,7 +1,9 @@
 import { api } from "../../scripts/api.js";
 
-export const origins = ["Privé", "Civitai", "Hybride"];
-export const categories = ["Personnages", "Actions", "Style graphique", "Detailers", "Sliders"];
+export const origins = [["Privé", "Private"], ["Civitai", "Civitai"], ["Hybride", "Mixed"]];
+export const originLabel = (value) => origins.find(([key]) => key === value)?.[1] || value;
+export const cardSource = (card) => card.unlinked && card.data.origin === "Privé" ? "Local" : originLabel(card.data.origin);
+export const categories = ["Characters", "Actions", "Art styles", "Detailers", "Sliders"];
 export const display = (card) => card.data.display_name || card.data.name || card.file;
 export const url = (path) => api.apiURL(`/sml-lora${path}`);
 
@@ -14,7 +16,7 @@ export async function request(path, method = "GET", data) {
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) {
-    const error = new Error(result?.error || `Requête impossible (${response.status}).`);
+    const error = new Error(result?.error || `Request failed (${response.status}).`);
     error.status = response.status;
     throw error;
   }
@@ -57,8 +59,8 @@ export function categoryField(value, label) {
 export function modal(title, classes = "") {
   const heading = el("h2", { id: `sml-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`, textContent: title });
   const tools = el("div", { className: "sml-actions" });
-  const dialog = el("dialog", { className: `sml sml-dialog ${classes}`, "aria-labelledby": heading.id });
-  const close = button("×", () => dialog.close(), { className: "sml-icon", "aria-label": "Fermer", autofocus: true });
+  const dialog = el("dialog", { className: `sml sml-dialog ${classes}`, lang: "en", "aria-labelledby": heading.id });
+  const close = button("×", () => dialog.close(), { className: "sml-icon", "aria-label": "Close", autofocus: true });
   const header = el("header", { className: "sml-header" }, heading, tools, close);
   dialog.append(header);
   const previous = document.activeElement;
@@ -81,8 +83,8 @@ export function promptField(title, label, initial = "", inputType = "text") {
       resolve(input.value);
       dialog.close();
     } }, el("label", {}, label, input),
-    el("div", { className: "sml-actions" }, button("Annuler", () => dialog.close()),
-      el("button", { type: "submit", className: "sml-primary", textContent: "Valider" })));
+    el("div", { className: "sml-actions" }, button("Cancel", () => dialog.close()),
+      el("button", { type: "submit", className: "sml-primary", textContent: "Apply" })));
     dialog.append(form);
     dialog.addEventListener("close", () => resolve(null), { once: true });
     input.focus();
@@ -99,21 +101,51 @@ export async function copy(value) {
   input.select();
   const copied = document.execCommand("copy");
   input.remove();
-  if (!copied) throw new Error("Presse-papiers inaccessible.");
+  if (!copied) throw new Error("Clipboard unavailable.");
 }
 
 export function imageUrl(item, variant) {
   return url(`/images/${item.id}/${variant}`);
 }
 
+const autoKey = "sml.autoCivitai";
+export function automaticCivitaiEnabled() {
+  try { return localStorage.getItem(autoKey) !== "false"; }
+  catch { return true; }
+}
+
+export function setAutomaticCivitai(enabled) {
+  try { localStorage.setItem(autoKey, String(enabled)); }
+  catch { /* This browser does not allow persistent preferences. */ }
+}
+
+export async function watchCivitai(root, onUpdate, onProgress, first) {
+  if (!automaticCivitaiEnabled()) return;
+  try {
+    let state = await request("/civitai/auto", "POST", { first });
+    let revision = 0;
+    while (root.isConnected && automaticCivitaiEnabled()) {
+      onProgress?.(state);
+      if (state.revision !== revision) {
+        revision = state.revision;
+        await onUpdate();
+      }
+      if (!state.running) break;
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+      if (!root.isConnected || !automaticCivitaiEnabled()) break;
+      state = await request("/civitai/auto");
+    }
+  } catch { /* The library remains available while Civitai is offline. */ }
+}
+
 export function autoSave(dialog, form, inputs, persist) {
   let pending = {};
   let timer;
   let running;
-  const message = el("output", { className: "sml-status", role: "status", textContent: "Enregistrement automatique activé." });
-  const save = el("button", { type: "submit", className: "sml-primary", textContent: "Enregistrer maintenant", disabled: true });
+  const message = el("output", { className: "sml-status", role: "status", textContent: "Autosave on" });
+  const save = el("button", { type: "submit", className: "sml-primary", textContent: "Save now", disabled: true });
   form.append(el("div", { className: "sml-autosave" }, message,
-    el("div", { className: "sml-actions" }, button("Fermer", closeAfterSave), save)));
+    el("div", { className: "sml-actions" }, button("Close", closeAfterSave), save)));
 
   function flush() {
     clearTimeout(timer);
@@ -124,13 +156,13 @@ export function autoSave(dialog, form, inputs, persist) {
       while (Object.keys(pending).length) {
         const changes = pending;
         pending = {};
-        message.textContent = "Enregistrement…";
+        message.textContent = "Saving…";
         try {
           await persist(changes);
-          message.textContent = "Enregistré.";
+          message.textContent = "Saved.";
         } catch (error) {
           pending = { ...changes, ...pending };
-          message.textContent = `Enregistrement impossible. ${error.message}`;
+          message.textContent = `Could not save. ${error.message}`;
           return false;
         }
       }
@@ -146,18 +178,24 @@ export function autoSave(dialog, form, inputs, persist) {
     if (await flush()) dialog.close();
   }
 
-  for (const [key, input] of inputs) {
+  function queue(key, value) {
+    pending[key] = value;
+    save.disabled = Boolean(running);
+    if (running) return;
+    message.textContent = "Saving…";
+    clearTimeout(timer);
+    timer = setTimeout(flush, 350);
+  }
+
+  for (const [key, field] of inputs) {
+    const { input, read } = field.input ? field : { input: field, read: () => field.value };
     input.addEventListener("input", () => {
-      pending[key] = input.value;
-      save.disabled = Boolean(running);
-      if (running) return;
-      message.textContent = "Modifications en attente…";
-      clearTimeout(timer);
-      timer = setTimeout(flush, 450);
+      if (!input.validity || input.validity.valid) queue(key, read());
     });
   }
   form.onsubmit = (event) => { event.preventDefault(); flush(); };
   dialog.querySelector(".sml-header > .sml-icon").onclick = closeAfterSave;
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeAfterSave(); });
   dialog.addEventListener("close", flush, { once: true });
+  return { queue, flush };
 }

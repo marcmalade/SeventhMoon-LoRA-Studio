@@ -18,9 +18,9 @@ def create_nodes(catalog):
         CATEGORY = "Seventh Moon Labs"
         FUNCTION = "apply"
         RETURN_TYPES = ("MODEL", "STRING")
-        RETURN_NAMES = ("MODEL", "triggers sélectionnés")
-        DESCRIPTION = ("Applique les LoRA actifs et leurs forces sur la branche MODEL. "
-                       "La sortie STRING facultative contient uniquement les triggers sélectionnés.")
+        RETURN_NAMES = ("Model", "Selected triggers")
+        DESCRIPTION = ("Applies enabled LoRAs and their strengths to the MODEL branch. "
+                       "The optional STRING output contains only selected triggers.")
         patch_text_encoder = False
 
         @classmethod
@@ -30,7 +30,7 @@ def create_nodes(catalog):
                 required["clip"] = ("CLIP",)
             required["sml_stack"] = ("STRING", {
                 "default": '{"version":1,"enabled":true,"rows":[]}',
-                "multiline": True, "tooltip": "Pile LoRA enregistrée dans le workflow.",
+                "multiline": True, "tooltip": "LoRA stack stored in the workflow.",
             })
             return {"required": required}
 
@@ -82,7 +82,7 @@ def create_nodes(catalog):
                     continue
                 name = catalog.work_file(row)
                 if resolve(catalog.folders, name) is None:
-                    raise FileNotFoundError(f"LoRA absent des chemins loras configurés dans ComfyUI : {name}")
+                    raise FileNotFoundError(f"LoRA missing from the configured ComfyUI loras paths: {name}")
                 before_model = patch_state(model) if model_strength else None
                 before_clip = patch_state(getattr(clip, "patcher", None)) if clip_strength else None
                 next_model, next_clip = loader.load_lora(model if model_strength else None, clip if clip_strength else None,
@@ -95,15 +95,15 @@ def create_nodes(catalog):
                     compared.append((before_clip, patch_state(getattr(next_clip, "patcher", None))))
                     clip = next_clip
                 if all(before is not None and before == after for before, after in compared):
-                    raise ValueError(f"Aucun poids du LoRA {name} ne correspond aux entrées actives.")
+                    raise ValueError(f"No weights in LoRA {name} match the active inputs.")
             triggers = dict.fromkeys(word for row in rows for word in row["triggers"] if word.strip())
             return model, clip, ", ".join(triggers)
 
     class PowerLoRAWithCLIP(PowerLoRA):
         patch_text_encoder = True
         RETURN_TYPES = ("MODEL", "CLIP", "STRING")
-        RETURN_NAMES = ("MODEL", "CLIP", "triggers sélectionnés")
-        DESCRIPTION = "Applique une pile de LoRA au modèle et à l’encodeur de texte, avec des forces indépendantes."
+        RETURN_NAMES = ("Model", "CLIP", "Selected triggers")
+        DESCRIPTION = "Applies a LoRA stack with independent model and text encoder strengths."
 
         def apply(self, model, clip, sml_stack):
             return self.apply_stack(model, clip, sml_stack)

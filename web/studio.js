@@ -24,7 +24,7 @@ app.registerExtension({
     const active = (card) => addToActiveNode(app, card);
     if (app.extensionManager?.registerSidebarTab) {
       app.extensionManager.registerSidebarTab({
-        id: "seventh-moon-lora-library", title: "SML LoRA Library", tooltip: "Bibliothèque de LoRA",
+        id: "seventh-moon-lora-library", title: "SML LoRA Library", tooltip: "LoRA Library",
         icon: "icon-[lucide--library-big]", type: "custom", render: (root) => library(root, { active }),
       });
     } else {

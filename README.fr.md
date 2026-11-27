@@ -30,21 +30,21 @@ Pour mettre à jour une installation Git, lancer `git pull --ff-only` dans le do
 
 Dans le menu du graphe, chercher **SML Power LoRA** ou ouvrir la catégorie **Seventh Moon Labs**. Le node applique les LoRA sans exiger de prompt. La sortie `STRING` peut rester débranchée et ne renvoie que les trigger words cochés explicitement.
 
-1. Cliquer sur **Ajouter un LoRA**. Sa force recommandée est copiée dans la ligne si elle existe. La valeur initiale est `1` pour une fiche sans force enregistrée.
-2. Modifier la **force** directement dans la ligne. La variante Model and CLIP possède des valeurs `MODEL` et `CLIP` indépendantes. Mettre une force à `0` pour ignorer cette branche. Dans `ⓘ`, **Utiliser dans le node** recopie la force recommandée sur la branche modèle.
-3. Utiliser **Catégories** pour afficher des groupes repliables. Au départ, les lignes reprennent leur catégorie de fiche. Le menu `…` range une ligne dans un groupe propre au workflow. Revenir à la vue d’ordre normal pour déplacer les LoRA avec `↑` et `↓`. Le regroupement garde l’ordre d’application, l’ordre des lignes et leurs forces.
+1. Cliquer sur **Add LoRA**. Sa force recommandée est copiée dans la ligne si elle existe. La valeur initiale est `1` pour une fiche sans force enregistrée.
+2. Modifier la **force** directement dans la ligne. La variante Model and CLIP possède des valeurs `MODEL` et `CLIP` indépendantes. Mettre une force à `0` pour ignorer cette branche. Dans `ⓘ`, **Apply to stack** recopie la force recommandée sur la branche modèle.
+3. Utiliser **Categories** pour afficher des groupes repliables. Au départ, les lignes reprennent leur catégorie de fiche. Le menu `…` range une ligne dans un groupe propre au workflow. Revenir à la vue d’ordre normal pour déplacer les LoRA avec `↑` et `↓`. Le regroupement garde l’ordre d’application, l’ordre des lignes et leurs forces.
 4. Enregistrer les piles réutilisables dans **Presets**. Le workflow conserve aussi sa propre pile, ses catégories et l’état des groupes repliés.
 
 ## Bibliothèque et fiches
 
-- Ouvrir **SML LoRA Library** dans la barre latérale. Le catalogue utilise les chemins et les extensions enregistrés par ComfyUI pour `loras`, sous-dossiers compris. **Scanner** actualise la présence des fichiers. En cas de collision de chemin relatif entre deux racines, ComfyUI choisit le fichier de la première racine correspondante.
-- **Agrandir** ouvre la bibliothèque en grand. Les vues grille et liste offrent des filtres par modèle de base, catégorie, origine, favoris et présence d’un prompt enregistré. **Modèle de base** accepte une valeur libre ou celle fournie par Civitai. Les fichiers sans modèle renseigné restent consultables et sélectionnables.
-- Dans **Prompts du LoRA**, écrire ou coller un **Prompt par défaut** et éventuellement un **Prompt négatif par défaut**, y compris pour un LoRA privé. Le formulaire enregistre automatiquement les modifications. **Enregistrer maintenant** permet de lancer l’écriture immédiatement ou de réessayer après une erreur. Les actions de copie de la fiche permettent de réutiliser ces prompts.
+- Ouvrir **SML LoRA Library** dans la barre latérale. Le catalogue utilise les chemins et les extensions enregistrés par ComfyUI pour `loras`, sous-dossiers compris. **Rescan files** actualise la présence des fichiers. En cas de collision de chemin relatif entre deux racines, ComfyUI choisit le fichier de la première racine correspondante.
+- **Expand** ouvre la bibliothèque en grand. La liste continue est filtrable par modèle de base, catégorie, origine, favoris et présence d’un prompt enregistré via **Filters**. **Base model** accepte une valeur libre ou celle fournie par Civitai. Les fichiers sans modèle renseigné restent consultables et sélectionnables.
+- Dans **Prompts**, écrire ou coller un **Default prompt** et éventuellement un **Default negative prompt**, y compris pour un LoRA privé. Le formulaire enregistre automatiquement les modifications. **Save now** permet de lancer l’écriture immédiatement ou de réessayer après une erreur. Les actions de copie de la fiche permettent de réutiliser ces prompts.
 - Dans une fiche, ajouter ou déposer des PNG, JPEG et WebP. La visionneuse conserve les proportions. Utiliser `←` et `→` pour naviguer, `+` et `−` pour zoomer, `0` pour revenir à l’ajustement et `Échap` pour quitter le plein écran ou fermer la fiche. Au zoom, faire glisser l’image pour la déplacer. Le ruban accepte la molette et le trackpad.
 - Les commandes de galerie permettent de déplacer une image, lui donner une légende, la choisir comme couverture, remplacer une image personnelle ou la retirer. La copie locale originale reste disponible en pleine définition pendant la consultation.
-- **Prompt et réglages** présente les données de génération fournies par Civitai quand elles sont disponibles. Pour n’importe quelle image d’exemple, écris ou colle tes propres valeurs, puis utilise **Copier le prompt** ou **Définir comme défaut** pour le transférer dans la fiche. Les prompts négatifs ont les mêmes commandes. L’éditeur d’image enregistre automatiquement les saisies et propose **Enregistrer maintenant**. Les données locales et les métadonnées récupérées sont incluses dans la sauvegarde ZIP.
-- Chaque trigger a sa propre zone de texte, retours à la ligne compris. Cliquer sur son libellé le copie. **Copier la sélection** copie les triggers cochés. Quand la fiche est ouverte depuis un node, ces cases déterminent aussi sa sortie `STRING`.
-- Une fiche conserve son identifiant lors d’un renommage reconnu par le système de fichiers. Si un déplacement change son identité, ouvrir la fiche signalée absente et utiliser **Relier un fichier**. La fiche de destination doit être non renseignée pour éviter de fusionner deux fiches personnelles par inadvertance.
+- **Prompt & settings** présente les données de génération fournies par Civitai quand elles sont disponibles. Pour n’importe quelle image d’exemple, écris ou colle tes propres valeurs, puis utilise **Copy prompt** ou **Use as default** pour le transférer dans la fiche. Les prompts négatifs ont les mêmes commandes. L’éditeur d’image enregistre automatiquement les saisies et propose **Save now**. Les données locales et les métadonnées récupérées sont incluses dans la sauvegarde ZIP.
+- Chaque trigger a sa propre zone de texte, retours à la ligne compris. Cliquer sur son libellé le copie. **Copy selected** copie les triggers cochés. Quand la fiche est ouverte depuis un node, ces cases déterminent aussi sa sortie `STRING`.
+- Une fiche conserve son identifiant lors d’un renommage reconnu par le système de fichiers. Si un déplacement change son identité, ouvrir la fiche signalée absente et utiliser **Relink missing file**. La fiche de destination doit être non renseignée pour éviter de fusionner deux fiches personnelles par inadvertance.
 
 ## Compatibilité
 
@@ -56,9 +56,9 @@ Le widget s’appuie sur `addDOMWidget` et l’entrée de workflow reste un `STR
 
 ## Civitai
 
-Dans la fiche, choisir **Récupérer Civitai**, coller une URL de modèle, une URL de version ou un ID de version. Une URL sans version sélectionne la première version proposée par l’API. La recherche SHA256 demande une confirmation avant de communiquer l’empreinte. **Inclure la galerie étendue** ajoute la galerie du modèle et identifie séparément ses images. **Actualiser** conserve les valeurs que vous avez modifiées, les images personnelles, l’ordre et les couvertures.
+L’ouverture de la bibliothèque, du sélecteur ou d’une fiche déclenche en arrière-plan une recherche par SHA-256 sur Civitai. Les fiches marquées explicitement **Private** sont ignorées. Un fichier inchangé sans résultat peut être recherché à nouveau après sept jours. Décochez **Auto Civitai lookup** dans **Tools** pour désactiver la recherche automatique. Le menu **Civitai** d’une fiche permet aussi d’associer une URL ou un identifiant de version.
 
-Les miniatures sont mises en cache pendant la synchronisation. La grande image Civitai est téléchargée lors d’une sélection explicite ou via **Charger en HD**. **Télécharger pour hors ligne** met en cache la définition disponible pour l’ensemble de la galerie. Le serveur traite les pages que Civitai expose avec les permissions du compte et de la région. La galerie prend en charge les images PNG, JPEG et WebP. Pour authentifier les requêtes API, définir la variable `SML_CIVITAI_API_TOKEN` dans l’environnement qui démarre ComfyUI. Les lectures locales de fiche et de galerie restent hors ligne. [API publique Civitai](https://github.com/civitai/civitai-developer-docs/blob/main/site/reference/index.md) · [Pagination et permissions des images](https://github.com/civitai/civitai/blob/main/src/pages/api/v1/images/index.ts)
+La galerie affiche jusqu’à 15 images. La couverture, les images personnelles et celles dont les réglages ou la légende ont été modifiés passent en priorité. Les anciennes images restent dans les exports. Les miniatures sont mises en cache pendant la synchronisation. **Load full size** télécharge l’original de l’image sélectionnée. Le serveur traite les pages que Civitai expose avec les permissions du compte et de la région. La galerie prend en charge les images PNG, JPEG et WebP. Pour authentifier les requêtes API, définir la variable `SML_CIVITAI_API_TOKEN` dans l’environnement qui démarre ComfyUI. Les fiches locales restent accessibles hors ligne. [API publique Civitai](https://github.com/civitai/civitai-developer-docs/blob/main/site/reference/index.md) · [Pagination et permissions des images](https://github.com/civitai/civitai/blob/main/src/pages/api/v1/images/index.ts)
 
 ## Sauvegarde et migration
 
@@ -66,7 +66,7 @@ Les données se trouvent dans `seventh-moon-lora-studio` sous le répertoire uti
 
 Toute personne ayant accès à l’instance ComfyUI peut consulter ce catalogue partagé. Pour un accès à distance, protège ComfyUI par une passerelle authentifiée ou utilise un réseau privé.
 
-**Exporter ZIP** sauvegarde les fiches, les images déjà mises en cache, leur ordre, les couvertures et les presets. **Exporter JSON** sauvegarde les métadonnées et les références. **Importer** fusionne le contenu par identifiant ou chemin relatif en donnant la priorité aux modifications locales existantes. Les poids sont à copier séparément vers les chemins `loras` de la nouvelle installation. Les copies devenues orphelines restent dans le stockage local et sont exclues des nouvelles sauvegardes.
+**Export ZIP** sauvegarde les fiches, les images déjà mises en cache, leur ordre, les couvertures et les presets. **Export JSON** sauvegarde les métadonnées et les références. **Import backup** fusionne le contenu par identifiant ou chemin relatif en donnant la priorité aux modifications locales existantes. Les poids sont à copier séparément vers les chemins `loras` de la nouvelle installation. Les copies devenues orphelines restent dans le stockage local et sont exclues des nouvelles sauvegardes.
 
 ## API locale
 
@@ -77,7 +77,7 @@ Les routes sont accessibles sous `/api/sml-lora` dans ComfyUI. Les mutations exi
 | `GET /catalog`, `POST /scan` | Lire ou rescanner le catalogue |
 | `GET /lookup?file=…`, `GET /cards/{id}` | Retrouver une fiche |
 | `PATCH /cards/{id}`, `POST /cards/{id}/relink` | Modifier les champs ou relier un fichier |
-| `GET /cards/{id}/media?offset=…&limit=…` | Consulter une page de galerie |
+| `GET /cards/{id}/media?offset=…&limit=…` | Consulter jusqu’à 15 images de la galerie |
 | `POST /cards/{id}/media[?replace=…]` | Importer ou remplacer une image |
 | `PATCH /cards/{id}/media/{id}` | Actions `cover`, `remove`, `caption`, `move`, `generation` |
 | `GET /cards/{id}/media/{id}/generation` | Lire les prompts et réglages associés à une image |

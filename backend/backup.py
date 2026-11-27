@@ -35,14 +35,14 @@ def serialize(catalog, media, target=None):
     data = snapshot(catalog)
     manifest = dump(data).encode("utf-8")
     if len(manifest) > MANIFEST_LIMIT:
-        raise ValueError("Le catalogue dépasse la taille permise pour un manifeste.")
+        raise ValueError("The catalog exceeds the manifest size limit.")
     if target is None:
         return manifest
     blobs = {entry[field] for model in data["loras"] for entry in model["media"]
              for field in ("original", "thumbnail") if entry[field]}
     paths = [media.path(blob) for blob in sorted(blobs)]
     if sum(path.stat().st_size for path in paths if path.is_file()) + len(manifest) > PACK_LIMIT:
-        raise ValueError("La sauvegarde dépasse 32 Gio.")
+        raise ValueError("The backup exceeds 32 GiB.")
     with ZipFile(target, "w", compression=ZIP_STORED) as archive:
         archive.writestr("catalog.json", manifest)
         for path in paths:
@@ -52,18 +52,18 @@ def serialize(catalog, media, target=None):
 
 def identifier(value):
     if not isinstance(value, str) or not ID.fullmatch(value):
-        raise ValueError("Identifiant invalide dans la sauvegarde.")
+        raise ValueError("Invalid backup identifier.")
     return value
 
 
 def restore_data(catalog, media, raw, archive=None):
     if len(raw) > MANIFEST_LIMIT:
-        raise ValueError("Manifeste de sauvegarde trop volumineux.")
+        raise ValueError("Backup manifest is too large.")
     data = json.loads(raw)
     if (not isinstance(data, dict) or data.get("format") != "seventh-moon-lora-studio" or
             data.get("version") != 1 or not isinstance(data.get("loras"), list) or
             not isinstance(data.get("presets"), list)):
-        raise ValueError("Format de sauvegarde Seventh Moon inconnu.")
+        raise ValueError("Unsupported Seventh Moon backup format.")
     available = set(archive.namelist()) if archive else set()
     blobs = {}
 
@@ -80,14 +80,14 @@ def restore_data(catalog, media, raw, archive=None):
         if key not in blobs:
             info = archive.getinfo(member)
             if info.file_size > MAX_IMAGE:
-                raise ValueError("Image de sauvegarde trop volumineuse.")
+                raise ValueError("Image in backup exceeds the size limit.")
             with archive.open(info) as stream:
                 content = stream.read(MAX_IMAGE + 1)
             if hashlib.sha256(content).hexdigest() != blob.split(".")[0]:
-                raise ValueError("Empreinte d’image de sauvegarde incorrecte.")
+                raise ValueError("Image hash in backup does not match.")
             original, thumbnail = media.decode(content)
             if original != blob:
-                raise ValueError("Format d’image déclaré incorrect.")
+                raise ValueError("Image format does not match the backup manifest.")
             blobs[key] = blob if preview else (original, thumbnail)
         return blobs[key] if preview else blobs[key][0]
 
@@ -98,7 +98,7 @@ def restore_data(catalog, media, raw, archive=None):
         overrides = valid_fields(model["user_overrides"])
         remote = model["remote_metadata"]
         if not isinstance(remote, dict):
-            raise ValueError("Métadonnées Civitai invalides dans la sauvegarde.")
+            raise ValueError("Invalid Civitai metadata in backup.")
         valid_fields({k: v for k, v in remote.items() if k in FIELDS})
         safe_remote = {k: v for k, v in remote.items() if k in FIELDS}
         if remote.get("extended") is True:
@@ -113,13 +113,13 @@ def restore_data(catalog, media, raw, archive=None):
             allowed(remote["url"], API_HOSTS)
             safe_remote["url"] = remote["url"]
         if not isinstance(model["media"], list):
-            raise ValueError("Galerie de sauvegarde invalide.")
+            raise ValueError("Invalid gallery in backup.")
         entries = []
         for item in model["media"]:
             media_id = identifier(item["id"])
             source = item["source"]
             if source not in ("local", "civitai") or not isinstance(item["caption"], str):
-                raise ValueError("Image de sauvegarde invalide.")
+                raise ValueError("Invalid image in backup.")
             original, thumb = image(item["original"], False), image(item["thumbnail"], True)
             if source == "local" and not original:
                 continue
@@ -183,7 +183,7 @@ def restore_data(catalog, media, raw, archive=None):
             stack = parse_stack(preset["stack"])
             name = preset["name"]
             if not isinstance(name, str) or not name.strip() or len(name) > 120:
-                raise ValueError("Nom de preset invalide dans la sauvegarde.")
+                raise ValueError("Invalid preset name in backup.")
             for row in stack["rows"]:
                 row["id"] = ids.get(row["id"], row["id"])
             conn.execute("INSERT OR IGNORE INTO presets VALUES (?,?)", (name, dump(stack)))
@@ -197,9 +197,9 @@ def restore(catalog, media, source, zipped):
                 return restore_data(catalog, media, stream.read(MANIFEST_LIMIT + 1))
         with ZipFile(source) as archive:
             if sum(member.file_size for member in archive.infolist()) > PACK_LIMIT:
-                raise ValueError("Le contenu décompressé dépasse 32 Gio.")
+                raise ValueError("Uncompressed backup exceeds 32 GiB.")
             with archive.open("catalog.json") as stream:
                 raw = stream.read(MANIFEST_LIMIT + 1)
             return restore_data(catalog, media, raw, archive)
     except (BadZipFile, KeyError, TypeError, AttributeError, UnicodeError, RecursionError, RuntimeError) as error:
-        raise ValueError("Sauvegarde Seventh Moon invalide ou corrompue.") from error
+        raise ValueError("Invalid or damaged Seventh Moon backup.") from error
